@@ -69,11 +69,14 @@ async def run_step_test(
     
     # Move to start position
     print(f"\nMoving to start position: {start_pos}°")
-    for actuator_id in actuator_ids:
-        await kos.actuator.command_actuators([{
+    commands = [
+        {
             'actuator_id': actuator_id,
             'position': start_pos,
-        }])
+        }
+        for actuator_id in actuator_ids
+    ]
+    await kos.actuator.command_actuators(commands)
     
     # Wait for settling
     await asyncio.sleep(2.0)
@@ -113,34 +116,42 @@ async def run_step_test(
         
         print("\nExecuting step sequence...")
         for i, target_pos in enumerate(steps, 1):
-            for actuator_id in actuator_ids:
-                await kos.actuator.command_actuators([{
+            commands = [
+                {
                     'actuator_id': actuator_id,
                     'position': target_pos,
-                }])
+                }
+                for actuator_id in actuator_ids
+            ]
+            await kos.actuator.command_actuators(commands)
             await asyncio.sleep(step_hold_time)
     
     else:
-        # Run fixed step sequence
         print("\nStarting fixed step test...")
         for step in range(step_count):
             # Step up
             target_pos = start_pos + step_size
             print(f"\nStep {step + 1}/{step_count} UP to {target_pos}°")
-            for actuator_id in actuator_ids:
-                await kos.actuator.command_actuators([{
+            commands = [
+                {
                     'actuator_id': actuator_id,
                     'position': target_pos,
-                }])
+                }
+                for actuator_id in actuator_ids
+            ]
+            await kos.actuator.command_actuators(commands)
             await asyncio.sleep(step_hold_time)
             
             # Step down
             print(f"Step {step + 1}/{step_count} DOWN to {start_pos}°")
-            for actuator_id in actuator_ids:
-                await kos.actuator.command_actuators([{
+            commands = [
+                {
                     'actuator_id': actuator_id,
                     'position': start_pos,
-                }])
+                }
+                for actuator_id in actuator_ids
+            ]
+            await kos.actuator.command_actuators(commands)
             await asyncio.sleep(step_hold_time)
     
     await kos.close()
@@ -157,8 +168,8 @@ if __name__ == "__main__":
         
         # Basic step parameters
         "step_size": 4.0,         # degrees
-        "step_hold_time": 0.01,     # seconds
-        "step_count": 300,
+        "step_hold_time": 0.02,     # seconds
+        "step_count": 1000,
         "start_pos": 0.0,          # degrees
         
         # Motor parameters
@@ -174,7 +185,7 @@ if __name__ == "__main__":
         "step_min": 1.0,            # degrees
         "step_max": 5.0,           # degrees
         "max_total": 30.0,          # +- max position from start position
-        "seed": 43                  # Random seed (None for true random)
+        "seed": 44                  # Random seed (None for true random)
     }
     
     asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))

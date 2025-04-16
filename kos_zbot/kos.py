@@ -6,7 +6,7 @@ from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2
 from kos_zbot.feetech_actuator import SCSMotorController
 
 # Test Flags
-sync_test = True # Apply same position to all actuators for protocol performance testing
+sync_test = False # Apply same position to all actuators for protocol performance testing
 
 class MotorController:
     """Interface for real motor control using SCS servos."""

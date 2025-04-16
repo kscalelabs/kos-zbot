@@ -1,0 +1,170 @@
+# Linux Realtime capability for python
+sudo setcap cap_sys_nice=eip $(readlink -f /home/scott/miniforge3/envs/kos/bin/python)
+
+
+
+Feetech Protocol
+
+Update Loop All Positions
+
+Send Target Positions
+----------------------
+Header: [0xFF, 0xFF]                    # 2 bytes
+Broadcast ID: [0xFE]                    # 1 byte
+Length: [N]                             # 1 byte (N = 3 bytes per actuator + 4)
+Instruction: [0x83]                     # 1 byte (sync write instruction)
+Parameter1: [start_address]             # 1 byte (position L register)
+Parameter2: [data_length]               # 1 byte (2 bytes for position)
+Data: [ID1, pos_L1, pos_H1, 
+       ID2, pos_L2, pos_H2, ...]       # 60 bytes (3 bytes × 20 actuators)
+Checksum: [sum]                         # 1 byte
+
+Total Send = 68 bytes
+-----------------------
+
+
+Read all Positions
+------------------------
+### SEND ###
+Group Sync Read
+Header: [0xFF, 0xFF]                    # 2 bytes
+Broadcast ID: [0xFE]                    # 1 byte
+Length: [N]                             # 1 byte (N = number of parameters + 4)
+Instruction: [0x82]                     # 1 byte (sync read instruction)
+Parameter1: [start_address]             # 1 byte (position L register)
+Parameter2: [data_length]               # 1 byte (2 bytes for position)
+ID List: [ID1, ID2, ..., ID20]         # 20 bytes (one per actuator)
+Checksum: [sum]                         # 1 byte
+
+Total Send = 28 bytes
+
+### RECV ###
+Header: [0xFF, 0xFF]                    # 2 bytes
+ID: [actuator_id]                       # 1 byte
+Length: [0x04]                          # 1 byte (data_length + 2)
+Error: [error]                          # 1 byte
+Data: [position_L, position_H]          # 2 bytes
+Checksum: [sum]                         # 1 byte
+
+Per Actuator = 8 bytes
+Total Receive = 8 bytes × 20 actuators = 160 bytes
+---------------------------
+
+
+
+Total Bytes exchanged during an update step:
+--------------
+Read:  188 bytes (28 send + 160 receive)
+Write: 68 bytes  (68 send + 0 receive)
+Total: 256 bytes per complete cycle
+---------------
+
+
+UART communication: ~5.12ms
+Remaining time: ~14.88ms (for processing, servo response time, and sleep)
+
+@ 500Kbps @ 50hz update rate we are using 25.6% of our available cycle time just for UART comms.
+
+Should be able to support 100hz.
+
+--------------------------------------------------------------
+
+
+
+STS 3250 REGS
+(Servo 43) >> listregs
+3 Model = 2825
+5 ID = 43
+6 Baudrate = 0
+7 Return Delay = 0
+8 Response Status Level = 1
+9 Min Angle Limit = 0
+11 Max Angle Limit = 4095
+13 Max Temperature Limit = 80
+14 Max Voltage Limit = 160
+15 Min Voltage Limit = 60
+16 Max Torque Limit = 1000
+18 Phase = 12
+19 Unloading Condition = 45
+20 LED Alarm Condition = 45
+21 P Coefficient = 32
+22 D Coefficient = 32
+23 I Coefficient = 0
+24 Minimum Startup Force = 0
+26 CW Dead Zone = 0
+27 CCW Dead Zone = 0
+28 Protection Current = 310
+30 Angular Resolution = 1
+31 Offset = 0
+33 Mode = 0
+34 Protective Torque = 20
+35 Protection Time = 200
+36 Overload Torque = 80
+37 Speed closed loop P proportional coefficient = 10
+38 Over Current Protection Time = 250
+39 Velocity closed loop I integral coefficient = 200
+40 Torque Enable = 1
+41 Acceleration = 0
+42 Goal Position = 0
+44 Goal Time = 0
+46 Goal Speed = 0
+55 Lock = 1
+56 Present Position = 0
+58 Present Speed = 0
+60 Present Load = 0
+62 Present Voltage = 119
+63 Present Temperature = 26
+65 Status = 0
+66 Moving = 0
+69 Present Current = 0
+
+
+
+STS3215 REGS
+>> select 11
+Selected servo: 11
+(Servo 11) >> listregs
+3 Model = 777
+5 ID = 11
+6 Baudrate = 0
+7 Return Delay = 0
+8 Response Status Level = 1
+9 Min Angle Limit = 0
+11 Max Angle Limit = 4095
+13 Max Temperature Limit = 70
+14 Max Voltage Limit = 140
+15 Min Voltage Limit = 40
+16 Max Torque Limit = 1000
+18 Phase = 12
+19 Unloading Condition = 44
+20 LED Alarm Condition = 47
+21 P Coefficient = 32
+22 D Coefficient = 32
+23 I Coefficient = 0
+24 Minimum Startup Force = 16
+26 CW Dead Zone = 1
+27 CCW Dead Zone = 1
+28 Protection Current = 310
+30 Angular Resolution = 1
+31 Offset = 85
+33 Mode = 0
+34 Protective Torque = 20
+35 Protection Time = 200
+36 Overload Torque = 80
+37 Speed closed loop P proportional coefficient = 10
+38 Over Current Protection Time = 200
+39 Velocity closed loop I integral coefficient = 200
+40 Torque Enable = 0
+41 Acceleration = 0
+42 Goal Position = 0
+44 Goal Time = 0
+46 Goal Speed = 0
+55 Lock = 1
+56 Present Position = 3
+58 Present Speed = 0
+60 Present Load = 0
+62 Present Voltage = 121
+63 Present Temperature = 32
+65 Status = 0
+66 Moving = 0
+69 Present Current = 0

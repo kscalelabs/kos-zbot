@@ -28,16 +28,12 @@ class MotorController:
         if not commands:
             return
             
-        # Get the target position from first command
-        target_position = self._degrees_to_counts(commands[0]['position'])
-        
-        # Create a single dictionary for all actuators atomically
+        # Create a dictionary mapping each actuator to its commanded position
         servo_commands = {
-            actuator_id: target_position 
-            for actuator_id in self.actuator_ids
+            cmd['actuator_id']: self._degrees_to_counts(cmd['position'])
+            for cmd in commands
+            if cmd['actuator_id'] in self.actuator_ids  # Only include configured actuators
         }
-        
-        # Send all positions in one atomic batch
         self.controller.set_positions(servo_commands)
         
 
@@ -124,6 +120,8 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(error_msg)
             return common_pb2.ActionResponse(success=False)
+
+
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:

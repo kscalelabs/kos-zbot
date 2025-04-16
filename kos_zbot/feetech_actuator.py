@@ -201,7 +201,7 @@ class SCSMotorController:
         try:
             if "acceleration" in config:
                 # Read back acceleration value
-                actual_acc = packetHandler.read1ByteTxRx(actuator_id, SMS_STS_ACC)
+                actual_acc = packet_handler.read1ByteTxRx(actuator_id, SMS_STS_ACC)
                 if actual_acc != config["acceleration"]:
                     print(f"Acceleration mismatch: expected {config['acceleration']}, got {actual_acc}")
                     return False
@@ -397,7 +397,7 @@ class SCSMotorController:
             return False  # Return False instead of None
         
         if reg["size"] == 2:
-            value = [self.packet_handler.scs_lobyte(value), self.packetHandler.scs_hibyte(value)]
+            value = [self.packet_handler.scs_lobyte(value), self.packet_handler.scs_hibyte(value)]
         else:
             value = [value]
         
@@ -550,3 +550,25 @@ class SCSMotorController:
             print("\nAll compared parameters are identical across actuators.")
         
         return actuator_params
+
+    def set_zero_position(self, actuator_id: int):
+        self._unlockEEPROM(actuator_id)
+        time.sleep(0.01)
+        
+        # Set min angle to 0
+        self.writeReg(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
+        time.sleep(0.01)
+        
+        # Set max angle to 4095
+        self.writeReg(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
+        time.sleep(0.01)
+        
+        # Set position control mode
+        self.writeReg(actuator_id, SMS_STS_MODE, 0)
+        time.sleep(0.01)
+        
+        # Enable torque with special flag
+        self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
+        time.sleep(0.01)
+        
+        self._lockEEPROM(actuator_id)

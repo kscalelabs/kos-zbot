@@ -19,6 +19,6 @@ Get Servo Status Report
 python -m kos_zbot.tools.feetech_report --ids 11,12,13,14
 
 Zero Servo Positions
-./feetech_zero.py --device /dev/ttyUSB0 --baudrate 500000 --ids 11,12,13,14
+python -m kos_zbot.tools.feetech_zero --ids 11,12,13,14
 
 ```

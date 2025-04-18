@@ -2,3 +2,5 @@ pyserial==3.5
 grpcio
 pykos
 adafruit-circuitpython-bno055
+psutil
+tabulate

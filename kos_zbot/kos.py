@@ -2,8 +2,14 @@
 import asyncio
 import grpc
 from concurrent import futures
-from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2
-from kos_zbot.feetech_actuator import SCSMotorController
+from google.protobuf import empty_pb2
+from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2, imu_pb2, imu_pb2_grpc
+from kos_zbot.actuator import SCSMotorController
+from kos_zbot.imu import BNO055Manager
+
+import os 
+import psutil 
+
 
 # Test Flags
 sync_test = False # Apply same position to all actuators for protocol performance testing
@@ -181,6 +187,95 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
             context.set_details(str(e))
             return actuator_pb2.GetActuatorsStateResponse()
 
+class IMUService(imu_pb2_grpc.IMUServiceServicer):
+    """Implementation of IMUService that wraps a BNO055 sensor."""
+
+    def __init__(self, update_rate=100):
+        self.imu = BNO055Manager(update_rate=update_rate)
+
+    def __del__(self):
+        """Ensure cleanup of IMU manager."""
+        if hasattr(self, 'imu'):
+            self.imu.stop()
+
+    async def GetValues(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.IMUValuesResponse:
+        """Implements GetValues by reading IMU sensor data."""
+        try:
+            accel, gyro, mag = self.imu.get_values()
+            return imu_pb2.IMUValuesResponse(
+                accel_x=float(accel[0]),
+                accel_y=float(accel[1]),
+                accel_z=float(accel[2]),
+                gyro_x=float(gyro[0]),
+                gyro_y=float(gyro[1]),
+                gyro_z=float(gyro[2]),
+                mag_x=float(mag[0]),
+                mag_y=float(mag[1]),
+                mag_z=float(mag[2])
+            )
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return imu_pb2.IMUValuesResponse(
+                error=common_pb2.Error(message=str(e))
+            )
+
+    async def GetQuaternion(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.QuaternionResponse:
+        """Implements GetQuaternion by reading orientation data."""
+        try:
+            w, x, y, z = self.imu.get_quaternion()
+            return imu_pb2.QuaternionResponse(
+                w=float(w), x=float(x), y=float(y), z=float(z)
+            )
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return imu_pb2.QuaternionResponse(
+                error=common_pb2.Error(message=str(e))
+            )
+
+    async def GetEuler(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.EulerAnglesResponse:
+        """Implements GetEuler by reading Euler angles directly from sensor."""
+        try:
+            roll, pitch, yaw = self.imu.get_euler()
+            return imu_pb2.EulerAnglesResponse(
+                roll=float(roll),
+                pitch=float(pitch),
+                yaw=float(yaw)
+            )
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return imu_pb2.EulerAnglesResponse(
+                error=common_pb2.Error(message=str(e))
+            )
+
+    async def GetAdvancedValues(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.IMUAdvancedValuesResponse:
+        """Implements GetAdvancedValues by reading extended sensor data."""
+        try:
+            lin_accel, gravity, temp = self.imu.get_advanced_values()
+            return imu_pb2.IMUAdvancedValuesResponse(
+                lin_acc_x=float(lin_accel[0]),
+                lin_acc_y=float(lin_accel[1]),
+                lin_acc_z=float(lin_accel[2]),
+                grav_x=float(gravity[0]),
+                grav_y=float(gravity[1]),
+                grav_z=float(gravity[2]),
+                temp=float(temp)
+            )
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return imu_pb2.IMUAdvancedValuesResponse(
+                error=common_pb2.Error(message=str(e))
+            )
+
+    async def Zero(self, request: imu_pb2.ZeroIMURequest, context: grpc.ServicerContext) -> common_pb2.ActionResponse:
+        """Implements Zero - Note: BNO055 handles calibration internally."""
+        # The BNO055 handles its own zeroing/calibration, so this is a no-op
+        return common_pb2.ActionResponse(success=True)
+
+
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
@@ -189,6 +284,9 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_service = ActuatorService(motor_controller)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
         
+        #imu_service = IMUService()
+        #imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
         print(f"Server started on {host}:{port}")

@@ -182,6 +182,10 @@ class SCSMotorController:
             else:
                 self.torque_enabled_ids.discard(actuator_id)
 
+            # Handle zero position first if requested
+            if config.get('zero_position', False):
+                self.set_zero_position(actuator_id)
+
             if success:
                 print(f"Actuator {actuator_id} configured successfully: kp={kp}, kd={kd}, acc={acceleration}, torque={'on' if torque_enabled else 'off'}")
             else:

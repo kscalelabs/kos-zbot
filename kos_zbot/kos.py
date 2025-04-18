@@ -110,10 +110,14 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                 config["kp"] = request.kp
             if request.HasField("kd"):
                 config["kd"] = request.kd
+            if request.HasField("ki"):
+                config["ki"] = request.ki
             if request.HasField("max_torque"):
                 config["max_torque"] = request.max_torque
             if request.HasField("acceleration"):
                 config["acceleration"] = request.acceleration
+            if request.HasField("new_actuator_id"):
+                config["new_actuator_id"] = request.new_actuator_id
 
             print(f"Configuring actuator {request.actuator_id} with settings: {config}")
             success = await self.motor_controller.configure_actuator(request.actuator_id, config)

@@ -2,7 +2,7 @@
 
 import argparse
 import sys
-from kos_zbot.feetech_actuator import SCSMotorController
+from kos_zbot.actuator import SCSMotorController
 import time
 from tabulate import tabulate
 

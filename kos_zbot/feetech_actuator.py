@@ -225,6 +225,7 @@ class SCSMotorController:
                 print("Warning: Could not set real-time priority")
                 
         self.thread.start()
+
         
     def stop(self):
         """Stop the motor controller update loop"""
@@ -367,8 +368,10 @@ class SCSMotorController:
     def set_positions(self, position_dict: Dict[int, float]):
         """Set target positions for multiple actuators atomically"""
         with self.target_positions_lock:
-            # Replace entire batch instead of updating
-            self.next_position_batch = position_dict.copy()
+            # Create new batch by updating existing positions with new ones
+            if self.next_position_batch is None:
+                self.next_position_batch = self.last_commanded_positions.copy()
+            self.next_position_batch.update(position_dict)
             
     def get_position(self, actuator_id: int) -> Optional[float]:
         """Get current position of a specific actuator"""

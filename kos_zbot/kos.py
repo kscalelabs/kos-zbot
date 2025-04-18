@@ -65,13 +65,14 @@ class MotorController:
                 velocity=0.0,
                 online=False
             )
-            
+        
+        torque_enabled = self.controller.get_torque_enabled(actuator_id)
         position_deg = self._counts_to_degrees(position_raw)
         return actuator_pb2.ActuatorStateResponse(
             actuator_id=actuator_id,
             position=position_deg,
             velocity=0.0,
-            online=True
+            online=torque_enabled
         )
 
     async def configure_actuator(self, actuator_id: int, config: dict):

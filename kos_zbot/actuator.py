@@ -382,6 +382,9 @@ class SCSMotorController:
         with self.lock:
             return self.current_positions.get(actuator_id)
 
+    def get_torque_enabled(self, actuator_id: int) -> bool:
+        return actuator_id in self.torque_enabled_ids
+
     def _unlockEEPROM(self, actuator_id):
         self.packet_handler.unLockEprom(actuator_id)
         print("EEPROM unlocked")

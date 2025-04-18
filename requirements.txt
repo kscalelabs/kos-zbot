@@ -4,3 +4,4 @@ pykos
 adafruit-circuitpython-bno055
 psutil
 tabulate
+tqdm

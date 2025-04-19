@@ -26,6 +26,7 @@ class BNO055Manager:
         # Initialize timing statistics
         self.last_loop_time = 0
         self.max_loop_time = 0
+        self.consecutive_overruns = 0
         self.timing_stats = {
             'accel': [],
             'gyro': [],
@@ -85,7 +86,11 @@ class BNO055Manager:
                 
                 if loop_time > self.target_period:
                     self.timing_stats['overruns'] += 1
-                    logging.warning(f"IMU timing overrun: {loop_time*1000:.2f}ms (target: {self.target_period*1000:.2f}ms)")
+                    self.consecutive_overruns += 1
+                    if self.consecutive_overruns >= 3:
+                        logging.warning(f"IMU timing overrun: {loop_time*1000:.2f}ms (target: {self.target_period*1000:.2f}ms)")
+                else:
+                    self.consecutive_overruns = 0
                 
                 self.timing_stats['total_cycles'] += 1
                 

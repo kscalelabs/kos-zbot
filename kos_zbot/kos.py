@@ -51,7 +51,8 @@ class MotorController:
                 actuator_id=actuator_id,
                 position=0.0,
                 velocity=0.0,
-                online=False
+                online=False,
+                faults=["servo not registered"]
             )
             
         position_raw = self.controller.get_position(actuator_id)
@@ -60,7 +61,8 @@ class MotorController:
                 actuator_id=actuator_id,
                 position=0.0,
                 velocity=0.0,
-                online=False
+                online=False,
+                faults=["position read failed"]
             )
         
         torque_enabled = self.controller.get_torque_enabled(actuator_id)
@@ -69,7 +71,8 @@ class MotorController:
             actuator_id=actuator_id,
             position=position_deg,
             velocity=0.0,
-            online=torque_enabled
+            online=torque_enabled,
+            faults=[]
         )
 
     async def configure_actuator(self, actuator_id: int, config: dict):

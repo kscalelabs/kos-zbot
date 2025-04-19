@@ -195,8 +195,8 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
 class IMUService(imu_pb2_grpc.IMUServiceServicer):
     """Implementation of IMUService that wraps a BNO055 sensor."""
 
-    def __init__(self, update_rate=100):
-        self.imu = BNO055Manager(update_rate=update_rate)
+    def __init__(self, imu_manager):
+        self.imu = imu_manager
 
     def __del__(self):
         """Ensure cleanup of IMU manager."""
@@ -285,19 +285,22 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     motor_controller = MotorController()
+    imu_manager = BNO055Manager(update_rate=50)
+    imu_manager.start()
     try:
         actuator_service = ActuatorService(motor_controller)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
         
-        #imu_service = IMUService()
-        #imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        imu_service = IMUService(imu_manager)
+        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
         print(f"Server started on {host}:{port}")
         await server.wait_for_termination()
     finally:
-        motor_controller.controller.stop()  # Ensure cleanup happens
+        motor_controller.controller.stop()
+        imu_manager.stop()
 
 if __name__ == "__main__":
     asyncio.run(serve())

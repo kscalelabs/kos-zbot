@@ -2,20 +2,26 @@ import time
 import logging
 import threading
 import adafruit_bno055
-import serial
-
+import board
+import busio
 
 class BNO055Manager:
-    def __init__(self, port="/dev/ttyAMA4", baudrate=115200, update_rate=50):
-       
+    def __init__(self, update_rate=50):
         self.target_period = 1.0 / update_rate
-        self.uart = serial.Serial(port, baudrate=baudrate)
-        self.sensor = adafruit_bno055.BNO055_UART(self.uart)
+        
+        # Initialize I2C connection
+        self.i2c = busio.I2C(board.SCL, board.SDA)
+        self.sensor = adafruit_bno055.BNO055_I2C(self.i2c)
         
         # Initialize sensor data containers
         self.accel = (0, 0, 0)
         self.gyro = (0, 0, 0)
+        self.mag = (0, 0, 0)
         self.quaternion = (0, 0, 0, 0)
+        self.euler = (0, 0, 0)
+        self.linear_accel = (0, 0, 0)
+        self.gravity = (0, 0, 0)
+        self.temperature = 0
         
         # Initialize timing statistics
         self.last_loop_time = 0
@@ -58,23 +64,19 @@ class BNO055Manager:
             loop_start = time.time()
             
             try:
-                # Read acceleration data
+                # Read all sensor data
                 start_time = time.time()
-                self.accel = self.sensor.acceleration  # Changed from read_accelerometer()
-                accel_time = time.time() - start_time
-                self.timing_stats['accel'].append(accel_time)
-
-                # Read gyroscope data
-                start_time = time.time()
-                self.gyro = self.sensor.gyro  # Changed from read_gyroscope()
-                gyro_time = time.time() - start_time
-                self.timing_stats['gyro'].append(gyro_time)
-
-                # Read quaternion data
-                #start_time = time.time()
-                #self.quaternion = self.sensor.quaternion  # Changed from read_quaternion()
-                #quat_time = time.time() - start_time
-               # self.timing_stats['quaternion'].append(quat_time)
+                #self.temperature = self.sensor.temperature
+                self.accel = self.sensor.acceleration
+                #self.mag = self.sensor.magnetic
+                self.gyro = self.sensor.gyro
+                self.euler = self.sensor.euler
+                self.quaternion = self.sensor.quaternion
+                #self.linear_accel = self.sensor.linear_acceleration
+                #self.gravity = self.sensor.gravity
+                
+                read_time = time.time() - start_time
+                self.timing_stats['accel'].append(read_time)
 
                 # Calculate and store loop timing
                 loop_time = time.time() - loop_start
@@ -96,41 +98,13 @@ class BNO055Manager:
                 logging.error(f"Error in IMU update loop: {str(e)}")
                 time.sleep(0.1)  # Brief pause on error
 
-    def get_timing_stats(self):
-        """Get current timing statistics.
+    def get_values(self):
+        """Get the latest IMU readings.
         
         Returns:
-            dict: Dictionary containing timing statistics
+            tuple: (acceleration, gyro, magnetic) tuples in their respective units
         """
-        stats = {
-            'target_period': self.target_period,
-            'last_loop_time': self.last_loop_time,
-            'max_loop_time': self.max_loop_time,
-            'overruns': self.timing_stats['overruns'],
-            'total_cycles': self.timing_stats['total_cycles'],
-            'average_read_times': {
-                'accel': sum(self.timing_stats['accel']) / len(self.timing_stats['accel']) if self.timing_stats['accel'] else 0,
-                'gyro': sum(self.timing_stats['gyro']) / len(self.timing_stats['gyro']) if self.timing_stats['gyro'] else 0,
-                'quaternion': sum(self.timing_stats['quaternion']) / len(self.timing_stats['quaternion']) if self.timing_stats['quaternion'] else 0,
-            }
-        }
-        return stats
-
-    def get_accel(self):
-        """Get the latest accelerometer reading.
-        
-        Returns:
-            tuple: (x, y, z) acceleration in m/s^2
-        """
-        return self.accel
-
-    def get_gyro(self):
-        """Get the latest gyroscope reading.
-        
-        Returns:
-            tuple: (x, y, z) angular velocity in rad/s
-        """
-        return self.gyro
+        return self.accel, self.gyro, self.mag
 
     def get_quaternion(self):
         """Get the latest quaternion reading.
@@ -140,27 +114,55 @@ class BNO055Manager:
         """
         return self.quaternion
 
+    def get_euler(self):
+        """Get the latest euler angles.
+        
+        Returns:
+            tuple: (roll, pitch, yaw) in degrees
+        """
+        return self.euler
+
+    def get_advanced_values(self):
+        """Get additional sensor readings.
+        
+        Returns:
+            tuple: (linear_acceleration, gravity, temperature)
+        """
+        return self.linear_accel, self.gravity, self.temperature
+
+    def get_timing_stats(self):
+        """Get current timing statistics."""
+        stats = {
+            'target_period': self.target_period,
+            'last_loop_time': self.last_loop_time,
+            'max_loop_time': self.max_loop_time,
+            'overruns': self.timing_stats['overruns'],
+            'total_cycles': self.timing_stats['total_cycles'],
+            'average_read_times': {
+                'sensors': sum(self.timing_stats['accel']) / len(self.timing_stats['accel']) if self.timing_stats['accel'] else 0,
+            }
+        }
+        return stats
+
 # Example usage:
 if __name__ == "__main__":
     # Initialize and start the IMU manager
-    imu = BNO055Manager("/dev/ttyUSB0", update_rate=50)
+    imu = BNO055Manager(update_rate=50)
     imu.start()
     
     try:
-        # Run for a few seconds to collect data
-        time.sleep(5)
-        
-        # Get and print timing statistics
-        stats = imu.get_timing_stats()
-        print("\nIMU Timing Statistics:")
-        print(f"Target Period: {stats['target_period']*1000:.2f}ms")
-        print(f"Last Loop Time: {stats['last_loop_time']*1000:.2f}ms")
-        print(f"Max Loop Time: {stats['max_loop_time']*1000:.2f}ms")
-        print(f"Overruns: {stats['overruns']}")
-        print(f"Total Cycles: {stats['total_cycles']}")
-        print("\nAverage Read Times:")
-        for sensor, avg_time in stats['average_read_times'].items():
-            print(f"{sensor}: {avg_time*1000:.2f}ms")
+        while True:
+            # Clear screen and print all sensor data
+            print("\033[H\033[J")  # Clear screen
+            print(f"Temperature: {imu.temperature} degrees C")
+            print(f"Accelerometer (m/s^2): {imu.accel}")
+            print(f"Magnetometer (microteslas): {imu.mag}")
+            print(f"Gyroscope (rad/sec): {imu.gyro}")
+            print(f"Euler angle: {imu.euler}")
+            print(f"Quaternion: {imu.quaternion}")
+            print(f"Linear acceleration (m/s^2): {imu.linear_accel}")
+            print(f"Gravity (m/s^2): {imu.gravity}")
+            time.sleep(0.02)
             
-    finally:
+    except KeyboardInterrupt:
         imu.stop()

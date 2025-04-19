@@ -9,7 +9,7 @@ async def run_sine_test(
     # Sine wave parameters
     amplitude: float = 10.0,        # degrees
     frequency: float = 1.0,         # Hz
-    duration: float = 10.0,         # seconds
+    duration: float = 20.0,         # seconds
     sample_rate: float = 50.0,      # Hz
     start_pos: float = 0.0,         # degrees
     # Pattern configuration
@@ -23,40 +23,9 @@ async def run_sine_test(
     acceleration: float = 0.0,
     torque_enabled: bool = True,
 ):
-    """Run a sine wave test on specified actuators.
-    
-    Args:
-        ... (previous args remain the same) ...
-        wave_patterns: Dictionary of pattern configurations in the format:
-            {
-                'pattern_name': {
-                    'actuators': [list of actuator IDs],
-                    'amplitude': float (optional, overrides global),
-                    'frequency': float (optional, overrides global),
-                    'phase_offset': float (degrees),
-                    'freq_multiplier': float,
-                    'start_pos': float (optional, overrides global),
-                    'position_offset': float (optional, shifts wave center)
-                }
-            }
-    """
-   # Initialize default pattern if none provided
-    if wave_patterns is None:
-        wave_patterns = {
-            'default': {
-                'actuators': actuator_ids,
-                'amplitude': amplitude,
-                'frequency': frequency,
-                'phase_offset': 0.0,
-                'freq_multiplier': 1.0,
-                'start_pos': start_pos,
-                'position_offset': 0.0
-            }
-        }
-
-    # Connect to KOS
+    print(f"kos_ip: {kos_ip}")
     kos = KOS(kos_ip)
-    
+
     # Configure each actuator
     print("\nConfiguring actuators...")
     for actuator_id in actuator_ids:
@@ -81,7 +50,6 @@ async def run_sine_test(
     await kos.actuator.command_actuators(commands)
     await asyncio.sleep(2.0)
 
-    # Generate time points
     t = np.arange(0, duration, 1/sample_rate)
     
     print("\nStarting sine wave patterns...")
@@ -147,10 +115,17 @@ async def run_sine_test(
 if __name__ == "__main__":
     ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24,31,32,33,34,35,36,41,42,43,44,45,46]
     
-    # Example configuration showing different pattern possibilities
     TEST_CONFIG = {
-        # ... existing connection and global parameters ...
+        "kos_ip": "192.168.42.1",
         
+        # Sine wave parameters
+        "amplitude": 10.0,          # degrees
+        "frequency": 0.5,           # Hz
+        "duration": 100.0,           # seconds
+        "sample_rate": 50.0,        # Hz
+        "start_pos": 0.0,           # degrees
+        
+                
         # Pattern configuration
         "sync_all": False,
         "wave_patterns": {
@@ -168,7 +143,7 @@ if __name__ == "__main__":
             "pair_2": {
                 "actuators": [21, 22,23,24],
                 "amplitude": 15.0,
-                "frequency": 0.5,
+                "frequency": 1.0,
                 "phase_offset": 90.0,
                 "freq_multiplier": 1.0,
                 "start_pos": 10.0,
@@ -203,5 +178,5 @@ if __name__ == "__main__":
         "acceleration": 1000.0,
         "torque_enabled": True,
     }
-    
+    print("HELLO **********************************")
     asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))

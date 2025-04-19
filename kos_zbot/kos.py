@@ -11,9 +11,6 @@ import os
 import psutil 
 
 
-# Test Flags
-sync_test = False # Apply same position to all actuators for protocol performance testing
-
 class MotorController:
     """Interface for real motor control using SCS servos."""
     
@@ -144,19 +141,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                 for cmd in request.commands
             ]
 
-            # Apply same position to all actuators for protocol performance testing
-            if sync_test:
-                servo_position = commands[0]['position'] if commands else 0
-                test_commands = [
-                    {
-                        'actuator_id': actuator_id,
-                        'position': servo_position
-                    }
-                    for actuator_id in self.motor_controller.actuator_ids
-                ]
-                await self.motor_controller.command_actuator(test_commands)
-            else:
-                await self.motor_controller.command_actuator(commands)
+            await self.motor_controller.command_actuator(commands)
 
             return actuator_pb2.CommandActuatorsResponse()
         except Exception as e:

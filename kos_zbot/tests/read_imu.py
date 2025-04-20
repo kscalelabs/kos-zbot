@@ -6,6 +6,49 @@ import argparse
 import csv
 from datetime import datetime
 
+class DuplicateTracker:
+    def __init__(self):
+        self.last_values = None
+        self.total_readings = 0
+        self.total_duplicates = 0
+        self.current_duplicate_streak = 0
+        self.start_time = time.time()
+
+    def check_duplicate(self, accel, gyro):
+        self.total_readings += 1
+        current_values = (accel, gyro)
+        
+        is_duplicate = False
+        if self.last_values is not None:
+            is_duplicate = (
+                current_values[0] == self.last_values[0] and 
+                current_values[1] == self.last_values[1]
+            )
+            
+        if is_duplicate:
+            self.total_duplicates += 1
+            self.current_duplicate_streak += 1
+        else:
+            self.current_duplicate_streak = 0
+            
+        self.last_values = current_values
+        return is_duplicate
+
+    def get_stats(self):
+        runtime = time.time() - self.start_time
+        duplicate_percent = (self.total_duplicates / self.total_readings * 100) if self.total_readings > 0 else 0
+        effective_hz = self.total_readings / runtime
+        unique_hz = (self.total_readings - self.total_duplicates) / runtime
+        
+        return {
+            'runtime': runtime,
+            'total_readings': self.total_readings,
+            'total_duplicates': self.total_duplicates,
+            'duplicate_percent': duplicate_percent,
+            'effective_hz': effective_hz,
+            'unique_hz': unique_hz
+        }
+
 async def run_imu_test(
     kos_ip: str = "127.0.0.1",
     # Test parameters
@@ -63,27 +106,38 @@ async def run_imu_test(
     print(f"- Target rate: {sample_rate:.1f} Hz")
     print(f"- Target period: {period*1000:.1f} ms")
     print("\nReading measurements...")
+    dup_tracker = DuplicateTracker()
     
     try:
+        next_time = time.perf_counter()
         for i in range(iterations):
             loop_start = time.time()
             timestamp = datetime.now().isoformat()
             
-            # Read all requested measurements
             if read_basic:
                 t0 = time.time()
                 values = await kos.imu.get_imu_values()
                 timing_stats['basic_times'].append(time.time() - t0)
+                
+                # Check for duplicates
+                accel = (values.accel_x, values.accel_y, values.accel_z)
+                gyro = (values.gyro_x, values.gyro_y, values.gyro_z)
+                is_duplicate = dup_tracker.check_duplicate(accel, gyro)
+
+               
+                
                 print(f"\rAccel: {values.accel_x:.2f}, {values.accel_y:.2f}, {values.accel_z:.2f} m/s²", end='')
 
-                # Log to CSV if output file specified
                 if csv_writer:
                     csv_writer.writerow([
                         timestamp,
                         values.accel_x, values.accel_y, values.accel_z,
-                        values.gyro_x, values.gyro_y, values.gyro_z
+                        values.gyro_x, values.gyro_y, values.gyro_z,
+                        1 if is_duplicate else 0,  # Add duplicate flag to CSV
+                        dup_tracker.current_duplicate_streak
                     ])
-            
+
+           
             if read_quaternion:
                 t0 = time.time()
                 quat = await kos.imu.get_quaternion()
@@ -103,14 +157,19 @@ async def run_imu_test(
                 timing_stats['advanced_times'].append(time.time() - t0)
                 if i % 10 == 0:  # Print less frequently
                     print(f" | Temp: {advanced.temp:.1f}°C", end='')
+
+            if i > 0 and i % 100 == 0:
+                stats = dup_tracker.get_stats()
+                print(f"\nStats: {stats['total_duplicates']} duplicates/{stats['total_readings']} "
+                      f"total readings ({stats['duplicate_percent']:.1f}%) over {stats['runtime']:.1f}s "
+                      f"- Effective rate: {stats['effective_hz']:.1f} Hz "
+                      f"- Unique rate: {stats['unique_hz']:.1f} Hz")
             
-            # Calculate loop timing and sleep if needed
-            loop_time = time.time() - loop_start
-            timing_stats['loop_times'].append(loop_time)
             
-            sleep_time = period - loop_time
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
+            next_time += period
+            sleep_duration = next_time - time.perf_counter()
+            if sleep_duration > 0:
+                await asyncio.sleep(sleep_duration)
             
     except KeyboardInterrupt:
         print("\n\nTest interrupted by user")
@@ -143,6 +202,15 @@ async def run_imu_test(
             times = np.array(timing_stats['advanced_times']) * 1000
             print(f"Advanced read (ms): mean={times.mean():.1f}, min={times.min():.1f}, "
                   f"max={times.max():.1f}, std={times.std():.1f}")
+
+
+        stats = dup_tracker.get_stats()
+        print("\nDuplicate Statistics:")
+        print(f"Total readings: {stats['total_readings']}")
+        print(f"Total duplicates: {stats['total_duplicates']}")
+        print(f"Duplicate percentage: {stats['duplicate_percent']:.1f}%")
+        print(f"Effective sample rate: {stats['effective_hz']:.1f} Hz")
+        print(f"Unique sample rate: {stats['unique_hz']:.1f} Hz")
     
     await kos.close()
     print("\nTest complete!")

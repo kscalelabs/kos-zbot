@@ -4,6 +4,10 @@ Run KOS
 ```
 python -m kos_zbot.kos
 ```
+Scan Servos
+```
+python -m kos_zbot.tools.feetech_scan
+```
 
 Tests
 ```

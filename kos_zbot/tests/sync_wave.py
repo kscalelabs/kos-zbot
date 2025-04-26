@@ -113,10 +113,17 @@ async def run_sine_test(
     print("\nTest complete!")
 
 if __name__ == "__main__":
-    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24,31,32,33,34,35,36,41,42,43,44,45,46]
+    select_limbs = [0,3 + 1] # 0 is LARM, 3 is RLeg; keep the +1 for indexing
+
+    ACTUATOR_IDS = [
+        [11, 12, 13, 14], # LArm
+        [21, 22, 23, 24], # RArm
+        [31,32,33,34,35,36], # LLeg
+        [41,42,43,44,45,46] # RLeg
+    ]
     
     TEST_CONFIG = {
-        "kos_ip": "192.168.42.1",
+        "kos_ip": "127.0.0.1",
         
         # Sine wave parameters
         "amplitude": 10.0,          # degrees
@@ -131,42 +138,42 @@ if __name__ == "__main__":
         "wave_patterns": {
             # Example: First two actuators in sync, offset upward
             "pair_1": {
-                "actuators": [11, 12,13,14],
-                "amplitude": 15.0,
+                "actuators": ACTUATOR_IDS[0],
+                "amplitude": 5.0,
+                "frequency": 0.5,
+                "phase_offset": 10.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 0.0,
+                "position_offset": 0.0  # Shifts wave up by 10 degrees
+            },
+            # Example: Second pair with phase offset, offset downward
+            "pair_2": {
+                "actuators": ACTUATOR_IDS[1],
+                "amplitude": 5.0,
+                "frequency": 1.0,
+                "phase_offset": 90.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 0.0,
+                "position_offset": 0.0  # Shifts wave down by 10 degrees
+            },
+            # Example: Third group with different frequency and diagonal offset
+            "group_3": {
+                "actuators": ACTUATOR_IDS[2],
+                "amplitude": 5.0,
+                "frequency": 0.5,
+                "phase_offset": 180.0,
+                "freq_multiplier": 2.0,
+                "start_pos": 0.0,
+                "position_offset": 0.0  # Shifts wave up by 15 degrees
+            },
+            "group_4": {
+                "actuators": ACTUATOR_IDS[3],
+                "amplitude": 5.0,
                 "frequency": 0.5,
                 "phase_offset": 0.0,
                 "freq_multiplier": 1.0,
                 "start_pos": 0.0,
-                "position_offset": 10.0  # Shifts wave up by 10 degrees
-            },
-            # Example: Second pair with phase offset, offset downward
-            "pair_2": {
-                "actuators": [21, 22,23,24],
-                "amplitude": 15.0,
-                "frequency": 1.0,
-                "phase_offset": 90.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 10.0,
-                "position_offset": -10.0  # Shifts wave down by 10 degrees
-            },
-            # Example: Third group with different frequency and diagonal offset
-            "group_3": {
-                "actuators": [31, 32, 33, 34, 35, 36],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 180.0,
-                "freq_multiplier": 2.0,
-                "start_pos": 20.0,
-                "position_offset": 15.0  # Shifts wave up by 15 degrees
-            },
-            "group_4": {
-                "actuators": [41, 42, 43, 44, 45, 46],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 0.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 30.0,
-                "position_offset": 10.0  # Shifts wave up by 10 degrees
+                "position_offset": 0.0  # Shifts wave up by 10 degrees
             }
         },
         
@@ -179,4 +186,6 @@ if __name__ == "__main__":
         "torque_enabled": True,
     }
     print("HELLO **********************************")
-    asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))
+    asyncio.run(run_sine_test(
+        [i for s in ACTUATOR_IDS[select_limbs[0]:select_limbs[1]] for i in s], # Flattening 2D list, of only select limbs
+        **TEST_CONFIG))

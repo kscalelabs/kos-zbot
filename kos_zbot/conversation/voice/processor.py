@@ -8,7 +8,7 @@ from openai import AsyncOpenAI
 from .tools import ToolManager
 from pyee.asyncio import AsyncIOEventEmitter
 
-# OpenAI system prompt
+# Constants
 SYSTEM_PROMPT = """You are ZBot, a friendly and helpful voice assistant robot. You have a warm, engaging personality and always aim to be helpful while maintaining a natural conversation flow. 
 
 Key characteristics:
@@ -31,18 +31,17 @@ Remember to:
 - Maintain a helpful and positive attitude
 - Always start your first interaction with: "Hello! I'm ZBot, your personal robot. I'm here to help you today. How can I assist you?" """
 
-# Available voices for the assistant
+# Available voices with descriptions
 AVAILABLE_VOICES = [
-    "alloy",    # A clear, natural voice
-    "echo",     # A warm, friendly voice
-    "fable",    # A smooth, professional voice
-    "onyx",     # A deep, authoritative voice
-    "nova",     # A bright, energetic voice
-    "shimmer",  # A soft, gentle voice
+    "alloy",    # Clear and natural voice
+    "echo",     # Warm and friendly voice
+    "fable",    # Smooth and professional voice
+    "onyx",     # Deep and authoritative voice
+    "nova",     # Bright and energetic voice
+    "shimmer",  # Soft and gentle voice
 ]
 
-# Default voice selection
-DEFAULT_VOICE = "echo"  # Changed from "ash" to "nova" for a more robot-like voice
+DEFAULT_VOICE = "echo"  # Warm and friendly voice suitable for a helpful robot assistant
 
 class AudioProcessor(AsyncIOEventEmitter):
     """Processes audio through OpenAI's API.
@@ -51,37 +50,43 @@ class AudioProcessor(AsyncIOEventEmitter):
     It acts as the bridge between the AudioRecorder and AudioPlayer components.
 
     Attributes:
-        client (AsyncOpenAI): OpenAI API client
+        client (AsyncOpenAI): OpenAI API client for async communication
         connection (AsyncRealtimeConnection): Active connection to OpenAI API
-        session: Current voice session
+        session: Current voice session for maintaining conversation state
         robot: Reference to the main robot instance
-        connected (asyncio.Event): Indicates active API connection
-        debug (bool): Enable debug mode
-        tool_manager (ToolManager): Manages LLM tools
+        connected (asyncio.Event): Event flag indicating active API connection
+        debug (bool): Enable debug mode for additional logging and audio saves
+        tool_manager (ToolManager): Manages LLM tools including vision capabilities
 
     Events emitted:
-        - audio_to_play: When audio is ready to be played
-        - processing_complete: When processing is complete
-        - set_volume: When the volume should be changed
+        - audio_to_play: When processed audio is ready to be played
+        - processing_complete: When audio processing is complete
+        - set_volume: When volume change is requested
+        - session_ready: When the OpenAI session is initialized and ready
     """
 
-    def __init__(self, openai_api_key, robot=None, debug=False):
-        """Initialize the AudioProcessor.
+    def __init__(
+        self,
+        openai_api_key,
+        robot=None,
+        debug=False,
+    ):
+        """Initialize the audio processor.
 
         Args:
             openai_api_key (str): OpenAI API key
             robot: Reference to the main robot instance
-            debug (bool): Enable debug mode
+            debug (bool): Whether to enable debug mode
         """
         super().__init__()
+        self.robot = robot
+        self.debug = debug
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.connection = None
         self.session = None
-        self.robot = robot
         self.connected = asyncio.Event()
-        self.debug = debug
 
-        self.tool_manager = ToolManager(robot=robot)
+        self.tool_manager = ToolManager(robot=robot, api_key=openai_api_key)
 
         self.tool_manager.on(
             "set_volume", lambda volume: self.emit("set_volume", volume)

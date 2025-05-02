@@ -6,6 +6,8 @@ import os
 import sched
 import platform
 from tabulate import tabulate  # Add this import at the top of the file
+from kos_zbot.utils.logging import get_logger
+
 
 ADDR_KP = 21  # Speed loop P gain
 ADDR_KD = 22  # Speed loop D gain
@@ -69,6 +71,7 @@ servoRegs = [
 class SCSMotorController:
     def __init__(self, device='/dev/ttyAMA5', baudrate=500000, rate=50, actuator_ids=None):
         """Initialize the motor controller with minimal setup"""
+        self.log = logging.getLogger(self.__class__.__name__)
         self.rate = rate
         self.period = 1.0 / rate
         self.scheduler = sched.scheduler(time.time, time.sleep)
@@ -88,7 +91,7 @@ class SCSMotorController:
         self.port_handler.setBaudRate(baudrate)
         if not self.port_handler.openPort():
             raise RuntimeError("Failed to open the port")
-        print(f"Port opened at {self.port_handler.getBaudRate()} baud") 
+        self.log.info(f"Port opened at {self.port_handler.getBaudRate()} baud") 
             
         self.group_sync_read = GroupSyncRead(self.packet_handler, SMS_STS_PRESENT_POSITION_L, 2)
         self.group_sync_write = GroupSyncWrite(self.packet_handler, SMS_STS_GOAL_POSITION_L, 2)
@@ -112,13 +115,13 @@ class SCSMotorController:
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
 
     
-    def add_actuator(self, actuator_id: int) -> bool:
+    def _add_actuator(self, actuator_id: int) -> bool:
         """Add a new actuator to the controller"""
         if actuator_id in self.actuator_ids:
             return True
             
         if not self.group_sync_read.addParam(actuator_id):
-            print(f"[ID:{actuator_id:03d}] groupSyncRead addparam failed")
+            self.log.error(f"[ID:{actuator_id:03d}] groupSyncRead addparam failed")
             return False
         
         # Initialize position tracking
@@ -127,7 +130,7 @@ class SCSMotorController:
         self.current_positions[actuator_id] = 0
         return True
 
-    def remove_actuator(self, actuator_id: int): #TODO: It's not clear that we really need this
+    def _remove_actuator(self, actuator_id: int): #TODO: It's not clear that we really need this
         """Remove an actuator from the controller"""
         if actuator_id in self.actuator_ids:
             self.torque_enabled_ids.discard(actuator_id)
@@ -155,8 +158,8 @@ class SCSMotorController:
 
             with self.config_lock:
                 # First add the actuator
-                if not self.add_actuator(actuator_id):
-                    print(f"Failed to add actuator {actuator_id}")
+                if not self._add_actuator(actuator_id):
+                    self.log.error(f"Failed to add actuator {actuator_id}")
                     return False
 
 
@@ -164,24 +167,24 @@ class SCSMotorController:
             # Write KP
             success &= self.writeReg(actuator_id, ADDR_KP, kp)
             if not success:
-                print(f"Failed to write KP for actuator {actuator_id}")
+                self.log.error(f"Failed to write KP for actuator {actuator_id}")
                 return False
             
             # Write KD
             success &= self.writeReg(actuator_id, ADDR_KD, kd)
             if not success:
-                print(f"Failed to write KD for actuator {actuator_id}")
+                self.log.error(f"Failed to write KD for actuator {actuator_id}")
                 return False
             
             # Write ACC
             success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
             if not success:
-                print(f"Failed to write ACC for actuator {actuator_id}")
+                self.log.error(f"Failed to write ACC for actuator {actuator_id}")
                 return False
 
             success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
             if not success:
-                print(f"Failed to set torque enable for actuator {actuator_id}")
+                self.log.error(f"Failed to set torque enable for actuator {actuator_id}")
                 return False
 
             if torque_enabled:
@@ -194,15 +197,15 @@ class SCSMotorController:
                 self.set_zero_position(actuator_id)
 
             if success:
-                print(f"Actuator {actuator_id} configured successfully: kp={kp}, kd={kd}, acc={acceleration}, torque={'on' if torque_enabled else 'off'}")
+                self.log.info(f"Actuator {actuator_id} configured successfully: kp={kp}, kd={kd}, acc={acceleration}, torque={'on' if torque_enabled else 'off'}")
             else:
-                self.remove_actuator(actuator_id)
-                print(f"Actuator {actuator_id} configuration failed")
+                self._remove_actuator(actuator_id)
+                self.log.error(f"Actuator {actuator_id} configuration failed")
             return success
 
         except Exception as e:
-            print(f"Error configuring actuator {actuator_id}: {str(e)}")
-            self.remove_actuator(actuator_id)
+            self.log.error(f"Error configuring actuator {actuator_id}: {str(e)}")
+            self._remove_actuator(actuator_id)
             return False
 
 
@@ -214,14 +217,14 @@ class SCSMotorController:
                 # Read back acceleration value
                 actual_acc = packet_handler.read1ByteTxRx(actuator_id, SMS_STS_ACC)
                 if actual_acc != config["acceleration"]:
-                    print(f"Acceleration mismatch: expected {config['acceleration']}, got {actual_acc}")
+                    self.log.error(f"Acceleration mismatch: expected {config['acceleration']}, got {actual_acc}")
                     return False
 
             # Add other configuration verifications here
             return True
 
         except Exception as e:
-            print(f"Verification error: {str(e)}")
+            self.log.error(f"Verification error: {str(e)}")
             return False
 
     def start(self):
@@ -233,7 +236,7 @@ class SCSMotorController:
             try:
                 os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
             except PermissionError:
-                print("Warning: Could not set real-time priority")
+                self.log.warning("Could not set real-time priority")
                 
         self.thread.start()
 
@@ -261,7 +264,7 @@ class SCSMotorController:
                             self._read_positions()
                             self._write_positions()
                 except Exception as e:
-                    print(f"Error in update loop: {e}")
+                    self.log.error(f"Error in update loop: {e}")
             
             # Precise timing control using monotonic time
             next_time += self.period
@@ -281,7 +284,7 @@ class SCSMotorController:
             else:
                 # If we're behind, reset timing instead of trying to catch up
                 next_time = time.monotonic() + self.period
-                print("Timing overrun detected")
+                self.log.warning("Timing overrun detected")
 
 
     def _get_params(self, actuator_id: int) -> dict:
@@ -297,25 +300,25 @@ class SCSMotorController:
             # Read KP
             kp_result, kp_error, kp = self.packet_handler.read1ByteTxRx(actuator_id, ADDR_KP)
             if kp_result != 0:
-                print(f"Failed to read KP from actuator {actuator_id}")
+                self.log.error(f"Failed to read KP from actuator {actuator_id}")
                 return None
                 
             # Read KD
             kd_result, kd_error, kd = self.packet_handler.read1ByteTxRx(actuator_id, ADDR_KD)
             if kd_result != 0:
-                print(f"Failed to read KD from actuator {actuator_id}")
+                self.log.error(f"Failed to read KD from actuator {actuator_id}")
                 return None
                 
             # Read Acceleration
             acc_result, acc_error, acc = self.packet_handler.read1ByteTxRx(actuator_id, SMS_STS_ACC)
             if acc_result != 0:
-                print(f"Failed to read ACC from actuator {actuator_id}")
+                self.log.error(f"Failed to read ACC from actuator {actuator_id}")
                 return None
                 
             # Read torque enable state
             torque_result, torque_error, torque = self.packet_handler.read1ByteTxRx(actuator_id, SMS_STS_TORQUE_ENABLE)
             if torque_result != 0:
-                print(f"Failed to read torque enable from actuator {actuator_id}")
+                self.log.error(f"Failed to read torque enable from actuator {actuator_id}")
                 return None
 
             params = {
@@ -324,20 +327,19 @@ class SCSMotorController:
                 'acceleration': acc * 100,  # Convert back to percentage
                 'torque_enabled': bool(torque)
             }
-            print(f"Actuator {actuator_id} parameters: KP: {params['kp']}, KD: {params['kd']}, Acceleration: {params['acceleration']}%, Torque enabled: {params['torque_enabled']}")
+            self.log.info(f"Actuator {actuator_id} parameters: KP: {params['kp']}, KD: {params['kd']}, Acceleration: {params['acceleration']}%, Torque enabled: {params['torque_enabled']}")
             
             return params
 
         except Exception as e:
-            print(f"Error reading parameters from actuator {actuator_id}: {str(e)}")
+            self.log.error(f"Error reading parameters from actuator {actuator_id}: {str(e)}")
             return None
             
     def get_all_params(self):
         """Read and display parameters for all configured actuators"""
-        print("Reading parameters for all actuators...")
+        self.log.info("Reading parameters for all actuators...")
         for actuator_id in sorted(self.actuator_ids):
             self._get_params(actuator_id)
-            print()  # Add blank line between actuators
             
     def _read_positions(self):
         """Read current positions from all servos"""
@@ -346,17 +348,17 @@ class SCSMotorController:
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
-            print(f"Read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
+            self.log.error(f"Read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
             # Instead of returning, increment error counts for all servos
             with self.lock:
                 for actuator_id in list(self.actuator_ids):
                     self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
                     self.last_error_time[actuator_id] = current_time
-                    print(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                    self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
                     
                     if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                        print(f"Removing actuator {actuator_id} due to repeated read failures")
-                        self.remove_actuator(actuator_id)
+                        self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
+                        self._remove_actuator(actuator_id)
                         self.group_sync_read.removeParam(actuator_id)
             return
                 
@@ -377,12 +379,12 @@ class SCSMotorController:
                     # Increment error count and update last error time
                     self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
                     self.last_error_time[actuator_id] = current_time
-                    print(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                    self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
                     
                     # Check if we should remove the actuator
                     if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                        print(f"Removing actuator {actuator_id} due to repeated read failures")
-                        self.remove_actuator(actuator_id)
+                        self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
+                        self._remove_actuator(actuator_id)
                         self.group_sync_read.removeParam(actuator_id)
     
 
@@ -426,11 +428,11 @@ class SCSMotorController:
 
     def _unlockEEPROM(self, actuator_id):
         self.packet_handler.unLockEprom(actuator_id)
-        print("EEPROM unlocked")
+        self.log.debug("EEPROM unlocked")
 
     def _lockEEPROM(self, actuator_id):
         self.packet_handler.LockEprom(actuator_id)
-        print("EEPROM locked")
+        self.log.debug("EEPROM locked")
 
 
     def writeReg(self, actuator_id, regAddr, value):
@@ -442,7 +444,7 @@ class SCSMotorController:
                 break
 
         if reg == None:
-            print("Unknown register: " + str(regAddr))
+            self.log.error("Unknown register: " + str(regAddr))
             return False  # Return False instead of None
         
         if reg["size"] == 2:
@@ -457,10 +459,10 @@ class SCSMotorController:
                 #print(f"Register {regAddr} written")
                 return True
             else:
-                print("Failed to write register - retrying...")
+                self.log.error("Failed to write register - retrying...")
                 retries -= 1
         
-        print(f"Failed to write register {regAddr} after all retries")
+        self.log.error(f"Failed to write register {regAddr} after all retries")
         return False  # Return False after all retries fail
 
     def _get_model_name(self, model_number):

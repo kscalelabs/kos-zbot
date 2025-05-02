@@ -6,6 +6,8 @@ from google.protobuf import empty_pb2
 from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2, imu_pb2, imu_pb2_grpc
 from kos_zbot.actuator import SCSMotorController
 from kos_zbot.imu import BNO055Manager
+import logging
+from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
 
 import os 
 import psutil 
@@ -19,6 +21,7 @@ class MotorController:
         self.controller = SCSMotorController(device='/dev/ttyAMA5', baudrate=500000, rate=50)
         self.controller.start()
         self._lock = asyncio.Lock()
+        self.log = get_logger(__name__)
 
     def _counts_to_degrees(self, counts: float) -> float:
         return (counts * 360 / 4095) - 180
@@ -88,7 +91,7 @@ class MotorController:
                 self.actuator_ids.add(actuator_id)
             else:
                 self.actuator_ids.discard(actuator_id)  # Remove if present
-                print(f"Failed to configure actuator {actuator_id}")
+                self.log.error(f"Failed to configure actuator {actuator_id}")
                 
             return success
 
@@ -98,6 +101,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     def __init__(self, motor_controller):
         super().__init__()
         self.motor_controller = motor_controller
+        self.log = get_logger(__name__)
 
     async def ConfigureActuator(self, request, context):
         """Handle actuator configuration."""
@@ -120,14 +124,14 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
             if request.HasField("new_actuator_id"):
                 config["new_actuator_id"] = request.new_actuator_id
 
-            print(f"Configuring actuator {request.actuator_id} with settings: {config}")
+            self.log.info(f"Configuring actuator {request.actuator_id} with settings: {config}")
             success = await self.motor_controller.configure_actuator(request.actuator_id, config)
             
             return common_pb2.ActionResponse(success=success)
             
         except Exception as e:
             error_msg = f"Error configuring actuator {request.actuator_id}: {str(e)}"
-            print(error_msg)
+            self.log.error(error_msg)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(error_msg)
             return common_pb2.ActionResponse(success=False)
@@ -161,7 +165,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
             return common_pb2.ActionResponse(success=True)
         except Exception as e:
             error_msg = f"Error reading parameters: {str(e)}"
-            print(error_msg)
+            self.log.error(error_msg)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(error_msg)
             return common_pb2.ActionResponse(success=False)
@@ -185,6 +189,7 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
 
     def __init__(self, imu_manager):
         self.imu = imu_manager
+        self.log = get_logger(__name__)
 
     def __del__(self):
         """Ensure cleanup of IMU manager."""
@@ -271,6 +276,7 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
 
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
+    log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     motor_controller = MotorController()
     imu_manager = BNO055Manager(update_rate=50)
@@ -284,11 +290,17 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
-        print(f"Server started on {host}:{port}")
+        log.info(f"KOS ZBot Service started on {host}:{port}")
         await server.wait_for_termination()
     finally:
         motor_controller.controller.stop()
         imu_manager.stop()
 
 if __name__ == "__main__":
+    KOSLoggerSetup.setup(
+        log_dir="logs",
+        console_level=get_log_level(),
+        file_level=logging.DEBUG
+    )
+
     asyncio.run(serve())

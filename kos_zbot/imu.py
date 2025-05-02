@@ -4,9 +4,11 @@ import threading
 import adafruit_bno055
 import board
 import busio
+from kos_zbot.utils.logging import get_logger
 
 class BNO055Manager:
     def __init__(self, update_rate=50):
+        self.log = get_logger(__name__)
         self.target_period = 1.0 / update_rate
         
         # Initialize I2C connection
@@ -42,14 +44,14 @@ class BNO055Manager:
     def start(self):
         """Start the IMU update thread."""
         if self._thread is not None and self._thread.is_alive():
-            logging.warning("IMU thread already running")
+            self.log.warning("IMU thread already running")
             return
             
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._update_loop)
         self._thread.daemon = True
         self._thread.start()
-        logging.info("IMU thread started")
+        self.log.info("IMU thread started")
 
     def stop(self):
         """Stop the IMU update thread."""
@@ -57,7 +59,7 @@ class BNO055Manager:
         if self._thread is not None:
             self._thread.join()
         self._thread = None
-        logging.info("IMU thread stopped")
+        self.log.info("IMU thread stopped")
 
     def _update_loop(self):
         """Main update loop for reading sensor data."""
@@ -100,7 +102,7 @@ class BNO055Manager:
                     time.sleep(sleep_time)
                     
             except Exception as e:
-                logging.error(f"Error in IMU update loop: {str(e)}")
+                self.log.error(f"Error in IMU update loop: {str(e)}")
                 time.sleep(0.1)  # Brief pause on error
 
     def get_values(self):

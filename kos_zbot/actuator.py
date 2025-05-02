@@ -71,7 +71,7 @@ servoRegs = [
 class SCSMotorController:
     def __init__(self, device='/dev/ttyAMA5', baudrate=500000, rate=50, actuator_ids=None):
         """Initialize the motor controller with minimal setup"""
-        self.log = logging.getLogger(self.__class__.__name__)
+        self.log = get_logger(__name__)
         self.rate = rate
         self.period = 1.0 / rate
         self.scheduler = sched.scheduler(time.time, time.sleep)
@@ -79,7 +79,8 @@ class SCSMotorController:
         self.last_config_time = 0
         self.CONFIG_GRACE_PERIOD = 2.0  # Wait 1 second after configs
 
-        self.torque_enabled_ids = set() 
+        self.torque_enabled_ids = set()
+        self.commanded_ids: Set[int] = set()
 
         self.actuator_ids = set()  # Use set instead of list for efficient membership testing
         self.last_commanded_positions = {}
@@ -134,6 +135,7 @@ class SCSMotorController:
         """Remove an actuator from the controller"""
         if actuator_id in self.actuator_ids:
             self.torque_enabled_ids.discard(actuator_id)
+            self.commanded_ids.discard(actuator_id)
             self.actuator_ids.remove(actuator_id)
             self.last_commanded_positions.pop(actuator_id, None)
             self.current_positions.pop(actuator_id, None)
@@ -396,12 +398,17 @@ class SCSMotorController:
         # Update our target if there are new positions
         with self.target_positions_lock:
             if self.next_position_batch is not None:
-                self.last_commanded_positions = self.next_position_batch
+                self.last_commanded_positions.update(self.next_position_batch)
                 self.next_position_batch = None
+            
+        write_ids = self.torque_enabled_ids & self.commanded_ids
 
         self.group_sync_write.clearParam()
-        for actuator_id in sorted(self.torque_enabled_ids):
-            position = self.last_commanded_positions.get(actuator_id, 0)
+        for actuator_id in sorted(write_ids):
+            position = self.last_commanded_positions.get(actuator_id)
+            if position is None:
+                continue
+
             position_data = [
                 self.packet_handler.scs_lobyte(int(position)),
                 self.packet_handler.scs_hibyte(int(position))
@@ -413,10 +420,12 @@ class SCSMotorController:
     def set_positions(self, position_dict: Dict[int, float]):
         """Set target positions for multiple actuators atomically"""
         with self.target_positions_lock:
-            # Create new batch by updating existing positions with new ones
             if self.next_position_batch is None:
-                self.next_position_batch = self.last_commanded_positions.copy()
+                #self.next_position_batch = self.last_commanded_positions.copy()
+                self.next_position_batch = {}
             self.next_position_batch.update(position_dict)
+            for actuator_id in position_dict:
+                self.commanded_ids.add(actuator_id)
             
     def get_position(self, actuator_id: int) -> Optional[float]:
         """Get current position of a specific actuator"""

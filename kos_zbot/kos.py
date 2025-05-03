@@ -11,7 +11,9 @@ import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
 
 import os 
-import psutil 
+import sys
+import fcntl
+import termios
 
 
 class MotorController:
@@ -278,8 +280,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     motor_controller = MotorController()
-    imu_manager = BNO055Manager(update_rate=50)
-    imu_manager.start()
+    #imu_manager = BNO055Manager(update_rate=50)
+    #imu_manager.start()
     stop_event = asyncio.Event()
     
     def handle_signal():
@@ -294,8 +296,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_service = ActuatorService(motor_controller)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
         
-        imu_service = IMUService(imu_manager)
-        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        #imu_service = IMUService(imu_manager)
+        #imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
@@ -305,9 +307,58 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         log.info("KOS ZBot service stopped")
     finally:
         motor_controller.controller.stop()
-        imu_manager.stop()
+        #imu_manager.stop()
+
+def singleton_check(pidfile='/tmp/kos.pid'):
+    """Ensure only one kos process runs at a time."""
+    log = get_logger(__name__)
+    pidfile_fd = os.open(pidfile, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        # File is locked by another process
+        with open(pidfile, 'r') as f:
+            existing_pid = f.read().strip()
+        if existing_pid and existing_pid.isdigit():
+            try:
+                os.kill(int(existing_pid), 0)
+                # Process is alive
+                answer = input(f"A kos process is already running (PID: {existing_pid}). Stop it? [y/N] ")
+                if answer.lower() == 'y':
+                    os.kill(int(existing_pid), 15)  # SIGTERM
+                    log.info("Sent SIGTERM, waiting for process to exit...")
+                    import time
+                    for _ in range(10):
+                        try:
+                            os.kill(int(existing_pid), 0)
+                            time.sleep(0.5)
+                        except OSError:
+                            break
+                    else:
+                        log.info("Process did not exit, exiting.")
+                        sys.exit(1)
+                    # Try to acquire lock again
+                    fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                else:
+                    log.info("Exiting.")
+                    sys.exit(1)
+            except OSError:
+                # Process not running, remove stale pidfile
+                log.info("Stale PID file found, removing.")
+                os.remove(pidfile)
+                fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            log.info("PID file exists but is invalid, removing.")
+            os.remove(pidfile)
+            fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    # Write our PID
+    os.ftruncate(pidfile_fd, 0)
+    os.write(pidfile_fd, str(os.getpid()).encode())
+    # Keep the file descriptor open for the life of the process
+    return pidfile_fd
 
 def main():
+    singleton_check()
     KOSLoggerSetup.setup(
         log_dir="logs",
         console_level=get_log_level(),

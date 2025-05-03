@@ -108,12 +108,16 @@ class SCSMotorController:
         
         # State variables
         self.running = False
-        self.current_positions = {}
         
+        # Double buffer for positions
+        self._positions_a = {}
+        self._positions_b = {}
+        self._active_positions = self._positions_a
+
         # Locks
-        self.lock = threading.Lock()
-        self.config_lock = threading.Lock()
-        self.target_positions_lock = threading.Lock()
+        self._control_lock = threading.Lock()
+        self._positions_lock = threading.Lock()
+        self._target_positions_lock = threading.Lock()
 
         self.read_error_counts = {}  # Track read errors per servo
         self.MAX_ERRORS = 10  # Maximum number of consecutive errors before removing servo
@@ -129,7 +133,7 @@ class SCSMotorController:
             self.log.error("No actuators found")
             raise NoActuatorsFoundError("No actuators found")
 
-        with self.config_lock:
+        with self._control_lock:
             for actuator in available_actuators:
                 self._add_actuator(actuator['id'])
 
@@ -155,7 +159,10 @@ class SCSMotorController:
         # Initialize position tracking
         self.actuator_ids.add(actuator_id)
         self.last_commanded_positions[actuator_id] = 0
-        self.current_positions[actuator_id] = 0
+
+        # Double-buffered positions: initialize both buffers
+        self._positions_a[actuator_id] = 0
+        self._positions_b[actuator_id] = 0
         return True
 
     def _remove_actuator(self, actuator_id: int): #TODO: It's not clear that we really need this
@@ -165,7 +172,12 @@ class SCSMotorController:
             self.commanded_ids.discard(actuator_id)
             self.actuator_ids.remove(actuator_id)
             self.last_commanded_positions.pop(actuator_id, None)
-            self.current_positions.pop(actuator_id, None)
+            
+             # Double-buffered positions: cleanup both buffers
+            self._positions_a.pop(actuator_id, None)
+            self._positions_b.pop(actuator_id, None)
+
+            # Cleanup error tracking
             self.read_error_counts.pop(actuator_id, None)
             self.last_error_time.pop(actuator_id, None)
 
@@ -175,7 +187,7 @@ class SCSMotorController:
             self.last_config_time = time.monotonic()
             changes = []
 
-            with self.config_lock:
+            with self._control_lock:
                 # Only configure if actuator is already registered
                 if actuator_id not in self.actuator_ids:
                     self.log.error(f"Cannot configure unregistered actuator {actuator_id}")
@@ -290,7 +302,7 @@ class SCSMotorController:
             # Only perform read/write if enough time has passed since last config
             if current_time - self.last_config_time >= self.CONFIG_GRACE_PERIOD:
                 try:
-                    with self.config_lock:
+                    with self._control_lock:
                         if self.actuator_ids:
                             self._read_positions()
                             self._write_positions()
@@ -375,48 +387,55 @@ class SCSMotorController:
     def _read_positions(self):
         """Read current positions from all servos"""
         current_time = time.monotonic()
-        
+        new_positions = {}
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
             self.log.error(f"Read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
             # Instead of returning, increment error counts for all servos
-            with self.lock:
-                for actuator_id in list(self.actuator_ids):
-                    self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
-                    self.last_error_time[actuator_id] = current_time
-                    self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
-                    
-                    if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                        self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
-                        self._remove_actuator(actuator_id)
-                        self.group_sync_read.removeParam(actuator_id)
+            for actuator_id in list(self.actuator_ids):
+                self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
+                self.last_error_time[actuator_id] = current_time
+                self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                
+                if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
+                    self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
+                    self._remove_actuator(actuator_id)
+                    self.group_sync_read.removeParam(actuator_id)
             return
                 
         # If group sync read succeeded, check individual servos
-        with self.lock:
-            for actuator_id in list(self.actuator_ids):  # Create copy to allow modification
-                data_result, error = self.group_sync_read.isAvailable(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+        for actuator_id in list(self.actuator_ids):  # Create copy to allow modification
+            data_result, error = self.group_sync_read.isAvailable(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+            
+            if data_result and error == 0:
+                position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+                new_positions[actuator_id] = position
                 
-                if data_result and error == 0:
-                    position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
-                    self.current_positions[actuator_id] = position
-                    
-                    # Reset error count if enough time has passed since last error
-                    last_error = self.last_error_time.get(actuator_id, 0)
-                    if current_time - last_error >= self.error_reset_period:
-                        self.read_error_counts[actuator_id] = 0
-                else:
-                    # Increment error count and update last error time
-                    self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
-                    self.last_error_time[actuator_id] = current_time
-                    self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
-                    
-                    # Check if we should remove the actuator
-                    if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                        self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
-                        self._remove_actuator(actuator_id)
-                        self.group_sync_read.removeParam(actuator_id)
+                # Reset error count if enough time has passed since last error
+                last_error = self.last_error_time.get(actuator_id, 0)
+                if current_time - last_error >= self.error_reset_period:
+                    self.read_error_counts[actuator_id] = 0
+            else:
+                # Increment error count and update last error time
+                self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
+                self.last_error_time[actuator_id] = current_time
+                self.log.error(f"Failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                
+                # Check if we should remove the actuator
+                if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
+                    self.log.error(f"Removing actuator {actuator_id} due to repeated read failures")
+                    self._remove_actuator(actuator_id)
+                    self.group_sync_read.removeParam(actuator_id)
+
+            # Write to the inactive buffer
+            inactive = self._positions_b if self._active_positions is self._positions_a else self._positions_a
+            inactive.clear()
+            inactive.update(new_positions)
+
+            # Swap the active buffer
+            with self._positions_lock:
+                self._active_positions = inactive
     
 
     def _write_positions(self):
@@ -425,7 +444,7 @@ class SCSMotorController:
             return
 
         # Update our target if there are new positions
-        with self.target_positions_lock:
+        with self._target_positions_lock:
             if self.next_position_batch is not None:
                 self.last_commanded_positions.update(self.next_position_batch)
                 self.next_position_batch = None
@@ -448,7 +467,7 @@ class SCSMotorController:
             
     def set_positions(self, position_dict: Dict[int, float]):
         """Set target positions for multiple actuators atomically (positions in degrees)."""
-        with self.target_positions_lock:
+        with self._target_positions_lock:
             if self.next_position_batch is None:
                 self.next_position_batch = {}
 
@@ -459,8 +478,10 @@ class SCSMotorController:
             
     def get_position(self, actuator_id: int) -> Optional[float]:
         """Get current position of a specific actuator"""
-        with self.lock:
-            return self._counts_to_degrees(self.current_positions.get(actuator_id))
+        with self._positions_lock:
+            positions = self._active_positions
+        value = positions.get(actuator_id)
+        return self._counts_to_degrees(value) if value is not None else None
 
     def get_torque_enabled(self, actuator_id: int) -> bool:
         return actuator_id in self.torque_enabled_ids
@@ -515,7 +536,7 @@ class SCSMotorController:
     def read_all_servo_params(self, actuator_id: int):
         """Read and display all relevant parameters for a servo"""
         try:
-            with self.config_lock:
+            with self._control_lock:
                 params = {}
                 for reg in servoRegs:
                     try:
@@ -647,6 +668,12 @@ class SCSMotorController:
         time.sleep(0.01)
         
         self._lockEEPROM(actuator_id)
+
+        # Set the target and buffers to zero
+        self.last_commanded_positions[actuator_id] = self._degrees_to_counts(0)
+        self._positions_a[actuator_id] = 0
+        self._positions_b[actuator_id] = 0
+
 
     def scan_servos(self, id_range: range) -> list:
         """Scan for servos in the given ID range and return their basic info"""

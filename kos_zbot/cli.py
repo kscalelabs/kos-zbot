@@ -1,4 +1,7 @@
 import click
+from tabulate import tabulate
+from pykos import KOS
+import asyncio
 
 @click.group()
 def cli():
@@ -21,7 +24,24 @@ def scan():
 @cli.command()
 def status():
     """Show status of actuators."""
-    click.echo("Showing status...")
+    from pykos import KOS
+    from tabulate import tabulate
+
+    async def _status():
+        kos = KOS("127.0.0.1")
+        response = await kos.actuator.get_actuators_state()
+        headers = ["ID", "Position (°)", "Torque", "Faults"]
+        table = []
+        for state in response.states:
+            table.append([
+                state.actuator_id,
+                f"{state.position:.2f}",
+                "ON" if state.online else "OFF",
+                ", ".join(state.faults) if state.faults else ""
+            ])
+        click.echo(tabulate(table, headers=headers, tablefmt="simple"))
+
+    asyncio.run(_status())
 
 @cli.command()
 @click.argument('action', type=click.Choice(['enable', 'disable']))

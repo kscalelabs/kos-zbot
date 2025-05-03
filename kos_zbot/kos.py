@@ -108,7 +108,12 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     async def GetActuatorsState(self, request, context):
         """Handle actuator state requests."""
         try:
-            ids = request.actuator_ids or [1]  # Default to actuator 1 if none specified
+            # If no IDs or 0 is in the list, return all
+            if not request.actuator_ids:
+                ids = sorted(self.actuator_controller.actuator_ids)
+            else:
+                ids = request.actuator_ids
+
             states = []
             for actuator_id in ids:
                 if actuator_id not in self.actuator_ids:
@@ -120,8 +125,9 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         faults=["servo not registered"]
                     )
                     
-                position_raw = self.actuator_controller.get_position(actuator_id)
-                if position_raw is None:
+                torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
+                position_deg = self.actuator_controller.get_position(actuator_id)
+                if position_deg is None:
                     state = actuator_pb2.ActuatorStateResponse(
                         actuator_id=actuator_id,
                         position=0.0,
@@ -129,16 +135,14 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         online=False,
                         faults=["position read failed"]
                     )
-                
-                torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
-                position_deg = self._counts_to_degrees(position_raw)
-                state = actuator_pb2.ActuatorStateResponse(
-                    actuator_id=actuator_id,
-                    position=position_deg,
-                    velocity=0.0,
-                    online=torque_enabled,
-                    faults=[]
-                )
+                else:
+                    state = actuator_pb2.ActuatorStateResponse(
+                        actuator_id=actuator_id,
+                        position=position_deg,
+                        velocity=0.0,
+                        online=True,
+                        faults=[]
+                    )
                 
                 states.append(state)
             return actuator_pb2.GetActuatorsStateResponse(states=states)

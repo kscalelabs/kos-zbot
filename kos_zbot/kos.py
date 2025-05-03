@@ -7,6 +7,7 @@ from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2, imu_pb2, imu
 from kos_zbot.actuator import SCSMotorController
 from kos_zbot.imu import BNO055Manager
 import logging
+import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
 
 import os 
@@ -123,8 +124,6 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                 config["acceleration"] = request.acceleration
             if request.HasField("new_actuator_id"):
                 config["new_actuator_id"] = request.new_actuator_id
-
-            self.log.info(f"Configuring actuator {request.actuator_id} with settings: {config}")
             success = await self.motor_controller.configure_actuator(request.actuator_id, config)
             
             return common_pb2.ActionResponse(success=success)
@@ -281,6 +280,16 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     motor_controller = MotorController()
     imu_manager = BNO055Manager(update_rate=50)
     imu_manager.start()
+    stop_event = asyncio.Event()
+    
+    def handle_signal():
+        log.info("Received shutdown signal")
+        stop_event.set()
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, handle_signal)
+    loop.add_signal_handler(signal.SIGTERM, handle_signal)
+
     try:
         actuator_service = ActuatorService(motor_controller)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
@@ -290,13 +299,15 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
-        log.info(f"KOS ZBot Service started on {host}:{port}")
-        await server.wait_for_termination()
+        log.info(f"KOS ZBot service started on {host}:{port}")
+        await stop_event.wait()
+        await server.stop(1)
+        log.info("KOS ZBot service stopped")
     finally:
         motor_controller.controller.stop()
         imu_manager.stop()
 
-if __name__ == "__main__":
+def main():
     KOSLoggerSetup.setup(
         log_dir="logs",
         console_level=get_log_level(),
@@ -304,3 +315,7 @@ if __name__ == "__main__":
     )
 
     asyncio.run(serve())
+
+if __name__ == "__main__":
+    main()
+   

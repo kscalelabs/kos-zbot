@@ -140,7 +140,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         actuator_id=actuator_id,
                         position=position_deg,
                         velocity=0.0,
-                        online=True,
+                        online=torque_enabled,
                         faults=[]
                     )
                 

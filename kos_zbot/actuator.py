@@ -170,73 +170,73 @@ class SCSMotorController:
             self.last_error_time.pop(actuator_id, None)
 
     def configure_actuator(self, actuator_id: int, config: dict):
-        """Configure PD gains and acceleration for a specific actuator"""
+        """Configure actuator parameters. Only parameters present in config are written."""
         try:
             self.last_config_time = time.monotonic()
-
-            # Get values from config with defaults
-            kp = config.get('kp', 20)
-            kd = config.get('kd', 10)
-            torque_enabled = config.get('torque_enabled', False)
-            acceleration = config.get('acceleration', 0) / 100.0
-            
-            if acceleration != 0:
-                acceleration = self._degrees_to_counts(acceleration) / 100.0
-
-            # Ensure values are within valid ranges # TODO: we should not clamp, we should return an error to caller
-            kp = max(0, min(255, int(kp)))
-            kd = max(0, min(255, int(kd)))
-            acceleration = max(0, min(255, int(acceleration)))
+            changes = []
 
             with self.config_lock:
-                # First add the actuator
-                if not self._add_actuator(actuator_id):
-                    self.log.error(f"Failed to add actuator {actuator_id}")
+                # Only configure if actuator is already registered
+                if actuator_id not in self.actuator_ids:
+                    self.log.error(f"Cannot configure unregistered actuator {actuator_id}")
                     return False
 
                 success = True
-                # Write KP
-                success &= self.writeReg(actuator_id, ADDR_KP, kp)
-                if not success:
-                    self.log.error(f"Failed to write KP for actuator {actuator_id}")
-                    return False
-                
-                # Write KD
-                success &= self.writeReg(actuator_id, ADDR_KD, kd)
-                if not success:
-                    self.log.error(f"Failed to write KD for actuator {actuator_id}")
-                    return False
-                
-                # Write ACC
-                success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
-                if not success:
-                    self.log.error(f"Failed to write ACC for actuator {actuator_id}")
-                    return False
 
-                success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
-                if not success:
-                    self.log.error(f"Failed to set torque enable for actuator {actuator_id}")
-                    return False
+                # KP
+                if 'kp' in config:
+                    kp = int(config['kp'])
+                    if not (0 <= kp <= 255):
+                        self.log.error(f"KP out of range: {kp}")
+                        return False
+                    success &= self.writeReg(actuator_id, ADDR_KP, kp)
+                    changes.append(f"kp={kp}")
 
-                if torque_enabled:
-                    self.torque_enabled_ids.add(actuator_id)
-                else:
-                    self.torque_enabled_ids.discard(actuator_id)
+                # KD
+                if 'kd' in config:
+                    kd = int(config['kd'])
+                    if not (0 <= kd <= 255):
+                        self.log.error(f"KD out of range: {kd}")
+                        return False
+                    success &= self.writeReg(actuator_id, ADDR_KD, kd)
+                    changes.append(f"kd={kd}")
 
-                # Handle zero position first if requested
+                # Acceleration
+                if 'acceleration' in config:
+                    acceleration = config['acceleration']
+                    # Convert if needed
+                    if acceleration != 0:
+                        acceleration = self._degrees_to_counts(acceleration) / 100.0
+                    acceleration = int(acceleration)
+                    if not (0 <= acceleration <= 255):
+                        self.log.error(f"Acceleration out of range: {acceleration}")
+                        return False
+                    success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
+                    changes.append(f"acc={acceleration}")
+
+                # Torque enable
+                if 'torque_enabled' in config:
+                    torque_enabled = bool(config['torque_enabled'])
+                    success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
+                    if torque_enabled:
+                        self.torque_enabled_ids.add(actuator_id)
+                    else:
+                        self.torque_enabled_ids.discard(actuator_id)
+                    changes.append(f"torque={'on' if torque_enabled else 'off'}")
+
+                # Zero position
                 if config.get('zero_position', False):
                     self.set_zero_position(actuator_id)
+                    changes.append("zeroed")
 
             if success:
-                self.log.info(f"Actuator {actuator_id} configured successfully: kp={kp}, kd={kd}, acc={acceleration}, torque={'on' if torque_enabled else 'off'}")
+                self.log.info(f"Actuator {actuator_id} configured: " + ", ".join(changes))
             else:
-                #self._remove_actuator(actuator_id)
-                self.log.error(f"Actuator {actuator_id} configuration failed")
+                self.log.error(f"Actuator {actuator_id} configuration failed: " + ", ".join(changes))
             return success
 
         except Exception as e:
             self.log.error(f"Error configuring actuator {actuator_id}: {str(e)}")
-            #self._remove_actuator(actuator_id)
             return False
 
 

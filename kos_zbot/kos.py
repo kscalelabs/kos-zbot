@@ -15,35 +15,16 @@ import os
 import sys
 import fcntl
 import termios
-
-class TemporalControlLock:
-    def __init__(self, cooldown=0.5):
-        self._lock = asyncio.Lock()
-        self._cooldown = cooldown
-        self._last_release_time = 0.0
-        self._log = get_logger(__name__)
-
-    async def is_in_cooldown(self) -> bool:
-        return time.monotonic() - self._last_release_time < self._cooldown
-
-    async def __aenter__(self):
-        if self._lock.locked() or await self.is_in_cooldown():
-            raise RuntimeError("Control is locked or in cooldown")
-        await self._lock.acquire()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._last_release_time = time.monotonic()
-        self._lock.release()
+import time
 
 
 class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
-    def __init__(self, actuator_controller, temporal_lock):
+    def __init__(self, actuator_controller):
         super().__init__()
         self.actuator_controller = actuator_controller
         self.actuator_ids = set()
         self.log = get_logger(__name__)
-        self.temporal_lock = temporal_lock
+        self.temporal_lock = asyncio.Lock()
 
     async def ConfigureActuator(self, request, context):
         """Handle actuator configuration."""
@@ -301,8 +282,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_controller.start()
     except NoActuatorsFoundError as e:
         sys.exit(1)
-    #imu_manager = BNO055Manager(update_rate=50)
-    #imu_manager.start()
+    imu_manager = BNO055Manager(update_rate=50)
+    imu_manager.start()
     stop_event = asyncio.Event()
     
     def handle_signal():
@@ -314,12 +295,11 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     loop.add_signal_handler(signal.SIGTERM, handle_signal)
 
     try:
-        temporal_lock = TemporalControlLock(cooldown=2.0)
-        actuator_service = ActuatorService(actuator_controller, temporal_lock)
+        actuator_service = ActuatorService(actuator_controller)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
         
-        #imu_service = IMUService(imu_manager)
-        #imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        imu_service = IMUService(imu_manager)
+        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
@@ -329,7 +309,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         log.info("KOS ZBot service stopped")
     finally:
         actuator_controller.stop()
-        #imu_manager.stop()
+        imu_manager.stop()
 
 def singleton_check(pidfile='/tmp/kos.pid'):
     """Ensure only one kos process runs at a time."""

@@ -129,6 +129,10 @@ class SCSMotorController:
             self.log.error("No actuators found")
             raise NoActuatorsFoundError("No actuators found")
 
+        with self.config_lock:
+            for actuator in available_actuators:
+                self._add_actuator(actuator['id'])
+
         # Initialize thread
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
 
@@ -190,50 +194,49 @@ class SCSMotorController:
                     self.log.error(f"Failed to add actuator {actuator_id}")
                     return False
 
+                success = True
+                # Write KP
+                success &= self.writeReg(actuator_id, ADDR_KP, kp)
+                if not success:
+                    self.log.error(f"Failed to write KP for actuator {actuator_id}")
+                    return False
+                
+                # Write KD
+                success &= self.writeReg(actuator_id, ADDR_KD, kd)
+                if not success:
+                    self.log.error(f"Failed to write KD for actuator {actuator_id}")
+                    return False
+                
+                # Write ACC
+                success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
+                if not success:
+                    self.log.error(f"Failed to write ACC for actuator {actuator_id}")
+                    return False
 
-            success = True
-            # Write KP
-            success &= self.writeReg(actuator_id, ADDR_KP, kp)
-            if not success:
-                self.log.error(f"Failed to write KP for actuator {actuator_id}")
-                return False
-            
-            # Write KD
-            success &= self.writeReg(actuator_id, ADDR_KD, kd)
-            if not success:
-                self.log.error(f"Failed to write KD for actuator {actuator_id}")
-                return False
-            
-            # Write ACC
-            success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
-            if not success:
-                self.log.error(f"Failed to write ACC for actuator {actuator_id}")
-                return False
+                success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
+                if not success:
+                    self.log.error(f"Failed to set torque enable for actuator {actuator_id}")
+                    return False
 
-            success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
-            if not success:
-                self.log.error(f"Failed to set torque enable for actuator {actuator_id}")
-                return False
+                if torque_enabled:
+                    self.torque_enabled_ids.add(actuator_id)
+                else:
+                    self.torque_enabled_ids.discard(actuator_id)
 
-            if torque_enabled:
-                self.torque_enabled_ids.add(actuator_id)
-            else:
-                self.torque_enabled_ids.discard(actuator_id)
-
-            # Handle zero position first if requested
-            if config.get('zero_position', False):
-                self.set_zero_position(actuator_id)
+                # Handle zero position first if requested
+                if config.get('zero_position', False):
+                    self.set_zero_position(actuator_id)
 
             if success:
                 self.log.info(f"Actuator {actuator_id} configured successfully: kp={kp}, kd={kd}, acc={acceleration}, torque={'on' if torque_enabled else 'off'}")
             else:
-                self._remove_actuator(actuator_id)
+                #self._remove_actuator(actuator_id)
                 self.log.error(f"Actuator {actuator_id} configuration failed")
             return success
 
         except Exception as e:
             self.log.error(f"Error configuring actuator {actuator_id}: {str(e)}")
-            self._remove_actuator(actuator_id)
+            #self._remove_actuator(actuator_id)
             return False
 
 
@@ -457,7 +460,7 @@ class SCSMotorController:
     def get_position(self, actuator_id: int) -> Optional[float]:
         """Get current position of a specific actuator"""
         with self.lock:
-            return self.current_positions.get(actuator_id)
+            return self._counts_to_degrees(self.current_positions.get(actuator_id))
 
     def get_torque_enabled(self, actuator_id: int) -> bool:
         return actuator_id in self.torque_enabled_ids

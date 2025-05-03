@@ -3,6 +3,7 @@ import asyncio
 import grpc
 from concurrent import futures
 from google.protobuf import empty_pb2
+from google.protobuf.struct_pb2 import Struct
 from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2, imu_pb2, imu_pb2_grpc
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager
@@ -15,37 +16,58 @@ import sys
 import fcntl
 import termios
 
+class TemporalControlLock:
+    def __init__(self, cooldown=0.5):
+        self._lock = asyncio.Lock()
+        self._cooldown = cooldown
+        self._last_release_time = 0.0
+        self._log = get_logger(__name__)
+
+    async def is_in_cooldown(self) -> bool:
+        return time.monotonic() - self._last_release_time < self._cooldown
+
+    async def __aenter__(self):
+        if self._lock.locked() or await self.is_in_cooldown():
+            raise RuntimeError("Control is locked or in cooldown")
+        await self._lock.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._last_release_time = time.monotonic()
+        self._lock.release()
+
 
 class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
-    def __init__(self, actuator_controller):
+    def __init__(self, actuator_controller, temporal_lock):
         super().__init__()
         self.actuator_controller = actuator_controller
         self.actuator_ids = set()
-        self.config_lock = asyncio.Lock()
         self.log = get_logger(__name__)
+        self.temporal_lock = temporal_lock
 
     async def ConfigureActuator(self, request, context):
         """Handle actuator configuration."""
         try:
-            config = {}
-            if request.HasField("torque_enabled"):
-                config["torque_enabled"] = request.torque_enabled
-            if request.HasField("zero_position"):
-                config["zero_position"] = request.zero_position
-            if request.HasField("kp"):
-                config["kp"] = request.kp
-            if request.HasField("kd"):
-                config["kd"] = request.kd
-            if request.HasField("ki"):
-                config["ki"] = request.ki
-            if request.HasField("max_torque"):
-                config["max_torque"] = request.max_torque
-            if request.HasField("acceleration"):
-                config["acceleration"] = request.acceleration
-            if request.HasField("new_actuator_id"):
-                config["new_actuator_id"] = request.new_actuator_id
+            async with self.temporal_lock:
+                config = {}
+                if request.HasField("torque_enabled"):
+                    config["torque_enabled"] = request.torque_enabled
+                if request.HasField("zero_position"):
+                    config["zero_position"] = request.zero_position
+                if request.HasField("kp"):
+                    config["kp"] = request.kp
+                if request.HasField("kd"):
+                    config["kd"] = request.kd
+                if request.HasField("ki"):
+                    config["ki"] = request.ki
+                if request.HasField("max_torque"):
+                    config["max_torque"] = request.max_torque
+                if request.HasField("acceleration"):
+                    config["acceleration"] = request.acceleration
+                if request.HasField("new_actuator_id"):
+                    config["new_actuator_id"] = request.new_actuator_id
 
-            async with self.config_lock: # TODO: do we need this?
+        
                 success = self.actuator_controller.configure_actuator(request.actuator_id, config)
                 if success:
                     self.actuator_ids.add(request.actuator_id) # TODO: should we be tracking this here?
@@ -55,6 +77,11 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                 
                 return common_pb2.ActionResponse(success=success)
             
+        except RuntimeError:
+            context.set_code(grpc.StatusCode.RESOURCE_EXHAUSTED)
+            context.set_details("Another control operation is in progress.")
+            return common_pb2.ActionResponse(success=False)
+
         except Exception as e:
             error_msg = f"Error configuring actuator {request.actuator_id}: {str(e)}"
             self.log.error(error_msg)
@@ -66,42 +93,66 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:
-            commands = [
-                {
-                    'actuator_id': cmd.actuator_id,
-                    'position': cmd.position
+            async with self.temporal_lock:
+                commands = [
+                    {
+                        'actuator_id': cmd.actuator_id,
+                        'position': cmd.position
+                    }
+                    for cmd in request.commands
+                ]
+                servo_commands = {
+                    cmd['actuator_id']: cmd['position']
+                    for cmd in commands
+                    if cmd['actuator_id'] in self.actuator_ids  # Only include configured actuators
                 }
-                for cmd in request.commands
-            ]
-            servo_commands = {
-                cmd['actuator_id']: cmd['position']
-                for cmd in commands
-                if cmd['actuator_id'] in self.actuator_ids  # Only include configured actuators
-            }
-            self.actuator_controller.set_positions(servo_commands)
+                self.actuator_controller.set_positions(servo_commands)
 
-            return actuator_pb2.CommandActuatorsResponse()
+                return actuator_pb2.CommandActuatorsResponse()
+
+        except RuntimeError:
+            context.set_code(grpc.StatusCode.RESOURCE_EXHAUSTED)
+            context.set_details("Another control operation is in progress.")
+            return common_pb2.ActionResponse(success=False)
+
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
             return actuator_pb2.CommandActuatorsResponse()
 
-        # In the ActuatorService class
-    async def ReadAllParams(self, request, context):
-        """Read all parameters from all servos"""
-        self.log.warning("ReadAllParams is not implemented")
-        return common_pb2.ActionResponse(success=True)
+
+    async def ParameterDump(self, request, context):
+        """Return parameter map for each actuator ID requested."""
+        def dict_to_struct(d: dict) -> Struct:
+            s = Struct()
+            s.update(d)
+            return s
 
         try:
-            # Call the motor controller's read function
-            self.actuator_controller.read_all_servos_params()
-            return common_pb2.ActionResponse(success=True)
+            ids = request.actuator_ids or sorted(self.actuator_controller.actuator_ids)
+            result = []
+            self.log.info(f"ParameterDump request: {ids}")
+            for aid in ids:
+                if aid not in self.actuator_controller.actuator_ids:
+                    self.log.warning(f"Actuator {aid} not registered")
+                    continue  # Skip unregistered actuators
+                try:
+                    param_dict = self.actuator_controller.read_all_servo_params(aid)
+                    result.append(actuator_pb2.ParameterDumpEntry(
+                        actuator_id=aid,
+                        parameters=dict_to_struct(param_dict)
+                    ))
+                except Exception as e:
+                    self.log.warning(f"Failed to read parameters from actuator {aid}: {e}")
+                    continue  # Skip on failure
+
+            return actuator_pb2.ParameterDumpResponse(entries=result)
+
         except Exception as e:
-            error_msg = f"Error reading parameters: {str(e)}"
-            self.log.error(error_msg)
+            self.log.error(f"Failed to handle GetParameters: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(error_msg)
-            return common_pb2.ActionResponse(success=False)
+            context.set_details(str(e))
+            return actuator_pb2.ParameterDumpResponse()
 
 
 
@@ -250,8 +301,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_controller.start()
     except NoActuatorsFoundError as e:
         sys.exit(1)
-    imu_manager = BNO055Manager(update_rate=50)
-    imu_manager.start()
+    #imu_manager = BNO055Manager(update_rate=50)
+    #imu_manager.start()
     stop_event = asyncio.Event()
     
     def handle_signal():
@@ -263,11 +314,12 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     loop.add_signal_handler(signal.SIGTERM, handle_signal)
 
     try:
-        actuator_service = ActuatorService(actuator_controller)
+        temporal_lock = TemporalControlLock(cooldown=2.0)
+        actuator_service = ActuatorService(actuator_controller, temporal_lock)
         actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
         
-        imu_service = IMUService(imu_manager)
-        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        #imu_service = IMUService(imu_manager)
+        #imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
@@ -277,7 +329,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         log.info("KOS ZBot service stopped")
     finally:
         actuator_controller.stop()
-        imu_manager.stop()
+        #imu_manager.stop()
 
 def singleton_check(pidfile='/tmp/kos.pid'):
     """Ensure only one kos process runs at a time."""

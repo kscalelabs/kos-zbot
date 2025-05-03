@@ -512,61 +512,46 @@ class SCSMotorController:
         }
         return model_map.get(model_number, f"Unknown Model {model_number}")
 
-    def read_all_servo_params(self, actuator_id: int, show_results=True):
+    def read_all_servo_params(self, actuator_id: int):
         """Read and display all relevant parameters for a servo"""
         try:
-            params = {}
-            if show_results:
-                print(f"\n=== Actuator {actuator_id} Parameters ===")
-            
-            for reg in servoRegs:
-                try:
-                    value, comm_result, error = self.packet_handler.readTxRx(actuator_id, reg["addr"], reg["size"])
-                    
-                    if comm_result == COMM_SUCCESS:
-                        if reg["size"] == 2:
-                            value = self.packet_handler.scs_tohost(
-                                self.packet_handler.scs_makeword(value[0], value[1]), 
-                                15
-                            )
-                        else:
-                            value = value[0]
+            with self.config_lock:
+                params = {}
+                for reg in servoRegs:
+                    try:
+                        value, comm_result, error = self.packet_handler.readTxRx(actuator_id, reg["addr"], reg["size"])
                         
-                        # Special handling for Model - store the name instead of the number
-                        if reg["name"] == "Model":
-                            value = self._get_model_name(value)
+                        if comm_result == COMM_SUCCESS:
+                            if reg["size"] == 2:
+                                value = self.packet_handler.scs_tohost(
+                                    self.packet_handler.scs_makeword(value[0], value[1]), 
+                                    15
+                                )
+                            else:
+                                value = value[0]
                             
-                        params[reg["name"]] = value
-                        if show_results:
-                            print(f"{reg['name']}: {value}")
-                    else:
-                        if show_results:
-                            print(f"Failed to read {reg['name']} - {self.packet_handler.getTxRxResult(comm_result)}")
+                            # Special handling for Model - store the name instead of the number
+                            if reg["name"] == "Model":
+                                value = self._get_model_name(value)
+                                
+                            params[reg["name"]] = {"value": value, "addr": reg["addr"]}
+                        else:
+                            self.log.error(f"Failed to read {reg['name']} - {self.packet_handler.getTxRxResult(comm_result)}")
+                            
+                    except Exception as e:
+                        self.log.error(f"Error reading {reg['name']} (addr: {reg['addr']}): {str(e)}")
+                        continue
                         
-                except Exception as e:
-                    print(f"Error reading {reg['name']} (addr: {reg['addr']}): {str(e)}")
-                    continue
-                    
-            # Add derived values
-            if "Present Position" in params and show_results:
-                degrees = (params["Present Position"] * 360 / 4095) - 180
-                print(f"Position in degrees: {degrees:.2f}°")
-                
-            if show_results:
-                print("=" * 30)
-            return params
+                # Add derived values
+                #if "Present Position" in params and show_results:
+                #    degrees = (params["Present Position"] * 360 / 4095) - 180
+                #    print(f"Position in degrees: {degrees:.2f}°")
+
+                return params
                 
         except Exception as e:
-            print(f"Error reading parameters from actuator {actuator_id}: {str(e)}")
+            self.log.error(f"Error reading parameters from actuator {actuator_id}: {str(e)}")
             return None
-
-    def read_all_servos_params(self):
-        """Read and display parameters for all configured actuators"""
-        print("\nReading all parameters for configured actuators...")
-        results = {}
-        for actuator_id in sorted(self.actuator_ids):
-            results[actuator_id] = self.read_all_servo_params(actuator_id, show_results=False)
-        return results
 
 
     def compare_actuator_params(self, actuator_ids=None, params_to_compare=None):
@@ -584,7 +569,7 @@ class SCSMotorController:
         # Read all parameters for specified actuators
         actuator_params = {}
         for aid in actuator_ids:
-            actuator_params[aid] = self.read_all_servo_params(aid, show_results=False)
+            actuator_params[aid] = self.read_all_servo_params(aid)
             time.sleep(0.1)
         
         # Create a mapping of parameter names to their register addresses

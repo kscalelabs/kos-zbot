@@ -117,6 +117,77 @@ def zero(ids):
 
     asyncio.run(_zero())
 
+@cli.command()
+@click.argument('ids', required=True)
+@click.option('--diff', is_flag=True, help="Only show parameters that differ between actuators.")
+def dump(ids, diff):
+    """Dump parameters from actuator IDs (comma-separated or 'all')."""
+    import asyncio
+    from google.protobuf.json_format import MessageToDict
+
+    async def _dump():
+        kos = KOS("127.0.0.1")
+
+        # Determine actuator IDs
+        if ids.lower() == "all":
+            status = await kos.actuator.get_actuators_state()
+            actuator_ids = [s.actuator_id for s in status.states]
+        else:
+            try:
+                actuator_ids = [int(i.strip()) for i in ids.split(",")]
+            except ValueError:
+                click.echo("Error: IDs must be comma-separated integers or 'all'")
+                return
+
+        # Call the GetParameters gRPC endpoint
+        response = await kos.actuator.parameter_dump(actuator_ids)
+
+        # Convert to dictionary: {actuator_id: {param: value}}
+        param_map = {}
+        for entry in response.entries:
+            struct_dict = MessageToDict(entry.parameters, preserving_proto_field_name=True)
+            param_map[entry.actuator_id] = struct_dict
+
+        all_param_names = set(
+            k for params in param_map.values() for k in params.keys()
+        )
+
+        # Build a mapping from param name to address (using the first actuator as reference)
+        param_addr_map = {name: param_map[actuator_ids[0]][name]["addr"] for name in all_param_names if name in param_map[actuator_ids[0]]}
+
+        sorted_param_names = sorted(
+            all_param_names,
+            key=lambda name: int(param_addr_map.get(name, 9999))
+        )
+
+    
+        # Build table data
+        headers = ["Parameter"] + [str(aid) for aid in actuator_ids]
+        rows = []
+
+        for param in sorted_param_names:
+            values = []
+            unique_values = set()
+            for aid in actuator_ids:
+                val = param_map.get(aid, {}).get(param, {}).get("value", "N/A")
+                unique_values.add(str(val))
+                values.append(str(val))
+            
+            if diff and len(unique_values) <= 1:
+                continue  # Skip if no difference
+            
+            row = [param] + values
+            rows.append(row)
+
+        if not rows:
+            click.echo("No differing parameters found." if diff else "No parameters found.")
+            return
+
+        click.echo(tabulate(rows, headers=headers, tablefmt="simple"))
+
+    asyncio.run(_dump())
+
+
 @cli.group()
 def test():
     """Test commands."""

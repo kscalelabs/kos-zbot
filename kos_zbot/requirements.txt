@@ -1,6 +1,6 @@
 pyserial==3.5
 grpcio
-pykos
+pykos>=0.7.7
 adafruit-circuitpython-bno055
 psutil
 tabulate
@@ -12,3 +12,5 @@ sounddevice
 pydub
 pyee
 openai[realtime]
+protobuf==5.29.0 
+click

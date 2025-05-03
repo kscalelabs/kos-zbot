@@ -60,7 +60,7 @@ async def run_imu_test(
     read_euler: bool = True,       # Read euler angles
     read_advanced: bool = True,    # Read linear acceleration, gravity, temperature
     print_stats: bool = True,      # Calculate and print statistics at end
-    output_file: str = None        # Optional output file for logging data
+    output_csv: str = None        # Optional output file for logging data
 ):
     """Run a test of the IMU service reading various measurements.
     
@@ -83,14 +83,14 @@ async def run_imu_test(
 
     csv_file = None
     csv_writer = None
-    if output_file:
-        csv_file = open(output_file, 'w', newline='')
+    if output_csv:
+        csv_file = open(output_csv, 'w', newline='')
         csv_writer = csv.writer(csv_file)
         # Write header
         csv_writer.writerow(['timestamp', 
                            'accel_x', 'accel_y', 'accel_z',
                            'gyro_x', 'gyro_y', 'gyro_z'])
-        print(f"Logging data to: {output_file}")
+        print(f"Logging data to: {output_csv}")
     
     # Storage for timing statistics
     timing_stats = {
@@ -239,7 +239,7 @@ if __name__ == "__main__":
         "read_euler": False,      # Disabled for basic logging
         "read_advanced": False,   # Disabled for basic logging
         "print_stats": True,
-        "output_file": args.output
+        "output_csv": args.output
     }
     
     asyncio.run(run_imu_test(**TEST_CONFIG))

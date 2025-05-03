@@ -168,11 +168,38 @@ def sync_step():
     }
     asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))
 
-
 @test.command()
 def imu():
     """Run the IMU test."""
     click.echo("Running IMU test...")
+    
+    import asyncio
+    import time 
+    import os
+    from kos_zbot.tests.read_imu import run_imu_test
+
+
+    log_dir = "./kos_zbot/tests/logs"
+
+    datetime = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+
+    TEST_CONFIG = {
+        'kos_ip': '127.0.0.1',
+        'sample_time': 30.0,
+        'sample_rate': 50.0,
+        'read_basic': True,
+        'read_quaternion': True,
+        'read_euler': False,
+        'read_advanced': False,
+        'print_stats': True,
+        'output_csv': f'{log_dir}/imuTest_{datetime}.csv'
+    }
+    asyncio.run(run_imu_test(**TEST_CONFIG))
+
+
 
 
 if __name__ == '__main__':

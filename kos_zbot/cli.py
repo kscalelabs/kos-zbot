@@ -2,6 +2,7 @@ import click
 from tabulate import tabulate
 from pykos import KOS
 import asyncio
+import time
 
 @click.group()
 def cli():
@@ -22,24 +23,49 @@ def scan():
     click.echo("Scanning for actuators...")
 
 @cli.command()
-def status():
-    """Show status of actuators."""
+@click.option('--freq', type=int, default=None, help="Polling frequency in Hz (e.g., --freq 50 for 50Hz polling).")
+def status(freq):
+    """Show status of actuators. Optionally poll at a given frequency (Hz) with --freq."""
     from pykos import KOS
     from tabulate import tabulate
+    import time
 
     async def _status():
         kos = KOS("127.0.0.1")
-        response = await kos.actuator.get_actuators_state()
         headers = ["ID", "Position (°)", "Torque", "Faults"]
-        table = []
-        for state in response.states:
-            table.append([
-                state.actuator_id,
-                f"{state.position:.2f}",
-                "ON" if state.online else "OFF",
-                ", ".join(state.faults) if state.faults else ""
-            ])
-        click.echo(tabulate(table, headers=headers, tablefmt="simple"))
+        overrun_count = 0
+
+        def print_table(response, overrun_count):
+            table = []
+            for state in response.states:
+                table.append([
+                    state.actuator_id,
+                    f"{state.position:.2f}",
+                    "ON" if state.online else "OFF",
+                    ", ".join(state.faults) if state.faults else ""
+                ])
+            click.clear()
+            click.echo(tabulate(table, headers=headers, tablefmt="simple"))
+            if freq:
+                click.echo(f"\nTiming overruns: {overrun_count}")
+
+        if freq:
+            interval = 1.0 / freq
+            try:
+                while True:
+                    start = time.perf_counter()
+                    response = await kos.actuator.get_actuators_state()
+                    elapsed = time.perf_counter() - start
+                    if elapsed > interval:
+                        overrun_count += 1
+                    print_table(response, overrun_count)
+                    sleep_time = max(0, interval - elapsed)
+                    await asyncio.sleep(sleep_time)
+            except KeyboardInterrupt:
+                click.echo("Stopped polling.")
+        else:
+            response = await kos.actuator.get_actuators_state()
+            print_table(response, overrun_count)
 
     asyncio.run(_status())
 
@@ -195,11 +221,92 @@ def test():
 
 @test.command()
 def sync_wave():
-    click.echo("Running sync_wave test...")
+    """Run the sync_wave test."""
+    import asyncio
+    from kos_zbot.tests.sync_wave import run_sine_test
+
+    # These should match the ACTUATOR_IDS and TEST_CONFIG in sync_wave.py
+    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 41, 42, 43, 44, 45, 46]
+    TEST_CONFIG = {
+        "kos_ip": "192.168.42.1",
+        "amplitude": 10.0,
+        "frequency": 0.5,
+        "duration": 100.0,
+        "sample_rate": 50.0,
+        "start_pos": 0.0,
+        "sync_all": False,
+        "wave_patterns": {
+            "pair_1": {
+                "actuators": [11, 12, 13, 14],
+                "amplitude": 15.0,
+                "frequency": 0.5,
+                "phase_offset": 0.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 0.0,
+                "position_offset": 10.0
+            },
+            "pair_2": {
+                "actuators": [21, 22, 23, 24],
+                "amplitude": 15.0,
+                "frequency": 1.0,
+                "phase_offset": 90.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 10.0,
+                "position_offset": -10.0
+            },
+            "group_3": {
+                "actuators": [31, 32, 33, 34, 35, 36],
+                "amplitude": 10.0,
+                "frequency": 0.5,
+                "phase_offset": 180.0,
+                "freq_multiplier": 2.0,
+                "start_pos": 20.0,
+                "position_offset": 15.0
+            },
+            "group_4": {
+                "actuators": [41, 42, 43, 44, 45, 46],
+                "amplitude": 10.0,
+                "frequency": 0.5,
+                "phase_offset": 0.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 30.0,
+                "position_offset": 10.0
+            }
+        },
+        "kp": 20.0,
+        "kd": 10.0,
+        "ki": 0.0,
+        "max_torque": 100.0,
+        "acceleration": 1000.0,
+        "torque_enabled": True,
+    }
+    asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))
 
 @test.command()
 def sync_step():
-    click.echo("Running sync_step test...")
+    """Run the sync_step test."""
+    import asyncio
+    from kos_zbot.tests.sync_step import run_step_test
+
+    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 41, 42, 43, 44, 45, 46]
+    TEST_CONFIG = {
+        "kos_ip": "127.0.0.1",
+        "step_size": 4.0,
+        "step_hold_time": 0.02,
+        "step_count": 100000,
+        "start_pos": 0.0,
+        "kp": 20.0,
+        "kd": 10.0,
+        "ki": 0.0,
+        "max_torque": 100.0,
+        "acceleration": 1000.0,
+        "torque_enabled": True,
+        "step_min": 1.0,
+        "step_max": 10.0,
+        "max_total": 30.0,
+        "seed": 42
+    }
+    asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))
 
 @test.command()
 def imu():

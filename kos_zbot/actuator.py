@@ -7,7 +7,16 @@ import sched
 import platform
 from tabulate import tabulate  # Add this import at the top of the file
 from kos_zbot.utils.logging import get_logger
+from tqdm import tqdm
 
+
+class NoActuatorsFoundError(Exception):
+    pass
+
+MODEL_MAP = {
+    777: "STS3215",   # 0x0309
+    2825: "STS3250"   # 0x0B09
+}
 
 ADDR_KP = 21  # Speed loop P gain
 ADDR_KD = 22  # Speed loop D gain
@@ -112,10 +121,24 @@ class SCSMotorController:
         self.last_error_time = {}  # Track when error count was last incremented
 
         time.sleep(1)
+
+        available_actuators = self.scan_servos(range(11, 47))
+        self.log.info(f"{len(available_actuators)} actuators found")
+
+        if not available_actuators:
+            self.log.error("No actuators found")
+            raise NoActuatorsFoundError("No actuators found")
+
         # Initialize thread
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
 
     
+    def _counts_to_degrees(self, counts: float) -> float:
+        return (counts * 360 / 4095) - 180
+        
+    def _degrees_to_counts(self, degrees: float) -> int:
+        return (degrees + 180) * (4095 / 360)
+
     def _add_actuator(self, actuator_id: int) -> bool:
         """Add a new actuator to the controller"""
         if actuator_id in self.actuator_ids:
@@ -153,7 +176,10 @@ class SCSMotorController:
             torque_enabled = config.get('torque_enabled', False)
             acceleration = config.get('acceleration', 0) / 100.0
             
-            # Ensure values are within valid ranges
+            if acceleration != 0:
+                acceleration = self._degrees_to_counts(acceleration) / 100.0
+
+            # Ensure values are within valid ranges # TODO: we should not clamp, we should return an error to caller
             kp = max(0, min(255, int(kp)))
             kd = max(0, min(255, int(kd)))
             acceleration = max(0, min(255, int(acceleration)))
@@ -418,13 +444,14 @@ class SCSMotorController:
 
             
     def set_positions(self, position_dict: Dict[int, float]):
-        """Set target positions for multiple actuators atomically"""
+        """Set target positions for multiple actuators atomically (positions in degrees)."""
         with self.target_positions_lock:
             if self.next_position_batch is None:
-                #self.next_position_batch = self.last_commanded_positions.copy()
                 self.next_position_batch = {}
-            self.next_position_batch.update(position_dict)
-            for actuator_id in position_dict:
+
+            for actuator_id, degrees in position_dict.items():
+                counts = self._degrees_to_counts(degrees)
+                self.next_position_batch[actuator_id] = counts
                 self.commanded_ids.add(actuator_id)
             
     def get_position(self, actuator_id: int) -> Optional[float]:
@@ -632,3 +659,20 @@ class SCSMotorController:
         time.sleep(0.01)
         
         self._lockEEPROM(actuator_id)
+
+    def scan_servos(self, id_range: range) -> list:
+        """Scan for servos in the given ID range and return their basic info"""
+        found_servos = []
+        
+        with tqdm(id_range, desc="Scanning servos", unit="ID") as pbar:
+            for servo_id in pbar:
+                model_number, result, error = self.packet_handler.ping(servo_id)
+                if result == 0:  # COMM_SUCCESS
+                    found_servos.append({
+                        "id": servo_id,
+                        "model": MODEL_MAP.get(model_number, f"Unknown Model {model_number}")
+                    })
+                    
+                    pbar.set_description(f"Found servo ID {servo_id}")
+        
+        return found_servos

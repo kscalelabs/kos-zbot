@@ -38,7 +38,7 @@ class KOSLoggerSetup:
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         console_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
         # Configure root logger

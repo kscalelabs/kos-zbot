@@ -142,7 +142,6 @@ def sync_wave():
     }
     asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))
 
-
 @test.command()
 def sync_step():
     """Run the sync_step test."""
@@ -178,7 +177,6 @@ def imu():
     import os
     from kos_zbot.tests.read_imu import run_imu_test
 
-
     log_dir = "./kos_zbot/tests/logs"
 
     datetime = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -188,7 +186,7 @@ def imu():
 
     TEST_CONFIG = {
         'kos_ip': '127.0.0.1',
-        'sample_time': 30.0,
+        'sample_time': 20.0,
         'sample_rate': 50.0,
         'read_basic': True,
         'read_quaternion': True,
@@ -198,8 +196,6 @@ def imu():
         'output_csv': f'{log_dir}/imuTest_{datetime}.csv'
     }
     asyncio.run(run_imu_test(**TEST_CONFIG))
-
-
 
 
 if __name__ == '__main__':

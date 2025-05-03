@@ -5,6 +5,8 @@ import numpy as np
 import argparse
 import csv
 from datetime import datetime
+import os
+
 
 class DuplicateTracker:
     def __init__(self):
@@ -83,14 +85,29 @@ async def run_imu_test(
 
     csv_file = None
     csv_writer = None
+
+    ROW_TYPES = {
+        'time': ['timestamp'],
+        'basic': ['accel_x', 'accel_y', 'accel_z',
+                  'gyro_x', 'gyro_y', 'gyro_z'],
+        'dupe': ['dupe','dupestreak'],
+        'quat' : ['quat_w','quat_x','quat_y','quat_z'],
+    }
+    row_select = [
+        'time',
+        'dupe' if read_basic else None,
+        'basic' if read_basic else None,
+        'quat' if read_quaternion else None,
+    ]
+
     if output_csv:
         csv_file = open(output_csv, 'w', newline='')
         csv_writer = csv.writer(csv_file)
         # Write header
-        csv_writer.writerow(['timestamp', 
-                           'accel_x', 'accel_y', 'accel_z',
-                           'gyro_x', 'gyro_y', 'gyro_z'])
-        print(f"Logging data to: {output_csv}")
+        csv_writer.writerow(
+            [v for k in row_select for v in ROW_TYPES[k]]
+        )
+        print(f"Logging data to: {os.path.abspath(output_csv)}")
     
     # Storage for timing statistics
     timing_stats = {
@@ -114,6 +131,9 @@ async def run_imu_test(
             loop_start = time.time()
             timestamp = datetime.now().isoformat()
             
+            if csv_writer:
+                imu_dict = {'time':[timestamp]}
+
             if read_basic:
                 t0 = time.time()
                 values = await kos.imu.get_imu_values()
@@ -122,21 +142,19 @@ async def run_imu_test(
                 # Check for duplicates
                 accel = (values.accel_x, values.accel_y, values.accel_z)
                 gyro = (values.gyro_x, values.gyro_y, values.gyro_z)
-                is_duplicate = dup_tracker.check_duplicate(accel, gyro)
+                is_duplicate = dup_tracker.check_duplicate(accel, gyro)               
 
-               
-                
                 print(f"\rAccel: {values.accel_x:.2f}, {values.accel_y:.2f}, {values.accel_z:.2f} m/s²", end='')
-
+               
                 if csv_writer:
-                    csv_writer.writerow([
-                        timestamp,
+                    imu_dict['dupe'] =[
+                        1 if is_duplicate else 0,  # Add duplicate flag to CSV
+                        dup_tracker.current_duplicate_streak 
+                    ]
+                    imu_dict['basic'] =[
                         values.accel_x, values.accel_y, values.accel_z,
                         values.gyro_x, values.gyro_y, values.gyro_z,
-                        1 if is_duplicate else 0,  # Add duplicate flag to CSV
-                        dup_tracker.current_duplicate_streak
-                    ])
-
+                    ]           
            
             if read_quaternion:
                 t0 = time.time()
@@ -145,6 +163,11 @@ async def run_imu_test(
                 #if i % 10 == 0:  # Print less frequently
                 print(f" | Quat: {quat.w:.2f}, {quat.x:.2f}, {quat.y:.2f}, {quat.z:.2f}", end='')
             
+                if csv_writer:
+                    imu_dict['quat'] =[
+                        quat.w, quat.x, quat.y, quat.z
+                    ]
+
             if read_euler:
                 t0 = time.time()
                 euler = await kos.imu.get_euler_angles()
@@ -165,6 +188,10 @@ async def run_imu_test(
                       f"- Effective rate: {stats['effective_hz']:.1f} Hz "
                       f"- Unique rate: {stats['unique_hz']:.1f} Hz")
             
+            if csv_writer:
+                    csv_writer.writerow(
+                       [v for k in row_select for v in imu_dict[k]] 
+                    )
             
             next_time += period
             sleep_duration = next_time - time.perf_counter()

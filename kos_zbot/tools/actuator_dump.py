@@ -1,5 +1,3 @@
-# kos_zbot/tools/actuator_dump.py
-
 import click
 import asyncio
 from pykos import KOS

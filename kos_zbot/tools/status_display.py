@@ -53,13 +53,8 @@ def make_table(states: list, scale: float = 180.0) -> Table:
 
 
 async def show_status(freq: int = None, scale: float = 180.0):
-    """
-    If freq is None: print one snapshot and exit.
-    Otherwise: live-update at `freq` Hz, scaling bars to ±scale.
-    """
     console = Console()
     console.clear()
-
     title = Rule("[bold white]K-OS Zbot v0.1 Status[/]", style="bold white")
 
     kos = KOS("127.0.0.1")
@@ -70,14 +65,69 @@ async def show_status(freq: int = None, scale: float = 180.0):
     if freq is None:
         console.print(title)
         console.print(make_table(states, scale))
+        console.print(
+            "[yellow]Tip: Run with [bold]--freq 50[/bold] to see live updates at 50 Hz.[/yellow]"
+        )
         return
 
-    # live mode in alternate screen (auto-clears on resize)
-    renderable = Group(title, make_table(states, scale))
-    with Live(
-        renderable, console=console, refresh_per_second=freq, screen=True
-    ) as live:
+    # shared stats
+    fetch_count = 0
+    fetch_start = asyncio.get_event_loop().time()
+    render_count = 0
+    render_start = fetch_start
+    render_interval = 1 / 20  # 25 Hz render
+
+    queue: asyncio.Queue[list] = asyncio.Queue(maxsize=1)
+
+    async def reader():
+        nonlocal fetch_count
         while True:
             resp = await kos.actuator.get_actuators_state()
-            live.update(Group(title, make_table(resp.states, scale)))
-            await asyncio.sleep(1 / freq)
+            fetch_count += 1
+            # keep only the newest snapshot
+            if queue.full():
+                _ = queue.get_nowait()
+            await queue.put(resp.states)
+
+    asyncio.create_task(reader())
+
+    overrun_count = 0
+
+    def make_status_text():
+        now = asyncio.get_event_loop().time()
+
+        # actual fetch rate
+        fetch_elapsed = now - fetch_start
+        actual_fetch = fetch_count / fetch_elapsed if fetch_elapsed > 0 else 0
+
+        # actual render rate
+        render_elapsed = now - render_start
+        actual_render = render_count / render_elapsed if render_elapsed > 0 else 0
+
+        return (
+            f"[cyan]Data (Hz):[/] {actual_fetch:.1f}/{freq}    "
+            f"[cyan]Render (Hz):[/] {actual_render:.1f}/20    "
+            f"[red]Overruns:[/] {overrun_count}"
+        )
+
+    # initial renderable
+    renderable = Group(title, make_table(states, scale), make_status_text())
+    with Live(renderable, console=console, refresh_per_second=25, screen=True) as live:
+        next_time = asyncio.get_event_loop().time()
+        while True:
+            now = asyncio.get_event_loop().time()
+            if now > next_time:
+                overrun_count += 1
+                next_time = now
+            else:
+                await asyncio.sleep(next_time - now)
+            next_time += render_interval
+
+            # grab freshest data if available
+            try:
+                states = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+
+            render_count += 1
+            live.update(Group(title, make_table(states, scale), make_status_text()))

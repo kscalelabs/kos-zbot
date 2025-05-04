@@ -78,54 +78,16 @@ def scan():
 @click.argument('ids', required=True)
 def torque(action, ids):
     """Enable or disable torque for given actuator IDs."""
-    async def _torque():
-        kos = KOS("127.0.0.1")
-        if ids.lower() == 'all':
-            resp = await kos.actuator.get_actuators_state()
-            actuator_ids = [s.actuator_id for s in resp.states]
-        else:
-            try:
-                actuator_ids = [int(i.strip()) for i in ids.split(',')]
-            except ValueError:
-                click.echo("Error: IDs must be comma-separated integers or 'all'")
-                return
-        enable = (action == 'enable')
-        for aid in actuator_ids:
-            await kos.actuator.configure_actuator(actuator_id=aid, torque_enabled=enable)
-        click.echo(f"Torque {'enabled' if enable else 'disabled'} for: {actuator_ids}")
-    asyncio.run(_torque())
+    from kos_zbot.tools.actuator_torque import actuator_torque
+    asyncio.run(actuator_torque(action, ids))
 
 
 @actuator.command()
 @click.argument('ids', required=True)
 def zero(ids):
     """Zero the given actuator IDs (comma-separated or 'all')."""
-    async def _zero():
-        kos = KOS("127.0.0.1")
-        if ids.lower() == 'all':
-            resp = await kos.actuator.get_actuators_state()
-            actuator_ids = [s.actuator_id for s in resp.states]
-        else:
-            try:
-                actuator_ids = [int(i.strip()) for i in ids.split(',')]
-            except ValueError:
-                click.echo("Error: IDs must be comma-separated integers or 'all'")
-                return
-        orig = await kos.actuator.get_actuators_state(actuator_ids)
-        orig_pos = {s.actuator_id: s.position for s in orig.states}
-        for aid in actuator_ids:
-            await kos.actuator.configure_actuator(actuator_id=aid, zero_position=True)
-            await asyncio.sleep(0.2)
-        await asyncio.sleep(3)
-        new = await kos.actuator.get_actuators_state(actuator_ids)
-        new_pos = {s.actuator_id: s.position for s in new.states}
-        headers = ["ID", "Original (°)", "New (°)"]
-        rows = [
-            [aid, f"{orig_pos.get(aid, 'N/A'):.2f}", f"{new_pos.get(aid, 'N/A'):.2f}"]
-            for aid in actuator_ids
-        ]
-        click.echo(tabulate(rows, headers=headers, tablefmt="simple"))
-    asyncio.run(_zero())
+    from kos_zbot.tools.actuator_zero import actuator_zero
+    asyncio.run(actuator_zero(ids))
 
 
 @actuator.command()

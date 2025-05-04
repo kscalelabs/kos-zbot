@@ -1,12 +1,14 @@
+import threading
+import queue
+import asyncio
+import time
 from rich.console import Console, Group
 from rich.table import Table
 from rich.live import Live
 from rich.rule import Rule
 from pykos import KOS
-import asyncio
 
 BAR_WIDTH = 30
-
 
 def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
     """
@@ -14,11 +16,8 @@ def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
     centered at zero, clamped to ±scale, colored cyan.
     """
     center = width // 2
-    # clamp into [-scale, +scale]
     clamped = max(min(pos, scale), -scale)
-    # map [-scale..+scale] -> [-center..+center]
     scaled = int((clamped / scale) * center)
-
     bar = [" "] * width
     bar[center] = "|"
     if scaled > 0:
@@ -27,9 +26,7 @@ def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
     elif scaled < 0:
         for i in range(1, -scaled + 1):
             bar[center - i] = "="
-
     return f"[cyan]{''.join(bar)}[/]"
-
 
 def make_table(states: list, scale: float = 180.0) -> Table:
     """
@@ -39,7 +36,7 @@ def make_table(states: list, scale: float = 180.0) -> Table:
     tbl = Table(show_header=True, header_style="bold magenta")
     tbl.add_column("ID", justify="right", no_wrap=True)
     tbl.add_column("Pos °", justify="right")
-    tbl.add_column(f"Position (Scaled: ±{scale}°)", no_wrap=True)
+    tbl.add_column(f"Position (±{scale}°)", no_wrap=True)
     tbl.add_column("Torque", justify="center")
     tbl.add_column("Faults", justify="left")
 
@@ -51,83 +48,63 @@ def make_table(states: list, scale: float = 180.0) -> Table:
 
     return tbl
 
+class PollerThread(threading.Thread):
+    """
+    Polls an async RPC at maximum rate in its own loop/thread,
+    and keeps only the latest result in a size-1 queue.
+    """
+    def __init__(self, rpc_coro_fn, out_queue: queue.Queue):
+        super().__init__(daemon=True)
+        self.rpc_coro_fn = rpc_coro_fn
+        self.out_queue = out_queue
 
-async def show_status(freq: int = None, scale: float = 180.0):
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        client = KOS("127.0.0.1")
+
+        while True:
+            try:
+                resp = loop.run_until_complete(self.rpc_coro_fn(client))
+            except Exception:
+                # ignore and retry
+                continue
+
+            data = getattr(resp, "states", resp)
+            if self.out_queue.full():
+                try:
+                    self.out_queue.get_nowait()
+                except queue.Empty:
+                    pass
+            self.out_queue.put(data)
+            # no explicit sleep: poll as fast as the RPC allows
+
+async def show_status(scale: float = 180.0):
     console = Console()
     console.clear()
-    title = Rule("[bold white]K-OS Zbot v0.1 Status[/]", style="bold white")
+    title = Rule("[bold white]K-OS Zbot v0.1 Status[/]")
 
-    kos = KOS("127.0.0.1")
-    resp = await kos.actuator.get_actuators_state()
-    states = resp.states
+    # set up the actuator poller
+    actuator_q: queue.Queue = queue.Queue(maxsize=1)
+    actuator_poller = PollerThread(
+        rpc_coro_fn=lambda client: client.actuator.get_actuators_state(),
+        out_queue=actuator_q,
+    )
+    actuator_poller.start()
 
-    # one-shot
-    if freq is None:
-        console.print(title)
-        console.print(make_table(states, scale))
-        console.print(
-            "[yellow]Tip: Run with [bold]--freq 50[/bold] to see live updates at 50 Hz.[/yellow]"
-        )
-        return
+    # wait for first snapshot
+    while actuator_q.empty():
+        await asyncio.sleep(0.001)
+    states = actuator_q.get_nowait()
 
-    # shared stats
-    fetch_count = 0
-    fetch_start = asyncio.get_event_loop().time()
-    render_count = 0
-    render_start = fetch_start
-    render_interval = 1 / 20  # 25 Hz render
+    render_interval = 1 / 20  # UI at 20 Hz
 
-    queue: asyncio.Queue[list] = asyncio.Queue(maxsize=1)
-
-    async def reader():
-        nonlocal fetch_count
+    with Live(Group(title, make_table(states, scale)), console=console, refresh_per_second=30, screen=True) as live:
         while True:
-            resp = await kos.actuator.get_actuators_state()
-            fetch_count += 1
-            # keep only the newest snapshot
-            if queue.full():
-                _ = queue.get_nowait()
-            await queue.put(resp.states)
-
-    asyncio.create_task(reader())
-
-    overrun_count = 0
-
-    def make_status_text():
-        now = asyncio.get_event_loop().time()
-
-        # actual fetch rate
-        fetch_elapsed = now - fetch_start
-        actual_fetch = fetch_count / fetch_elapsed if fetch_elapsed > 0 else 0
-
-        # actual render rate
-        render_elapsed = now - render_start
-        actual_render = render_count / render_elapsed if render_elapsed > 0 else 0
-
-        return (
-            f"[cyan]Data (Hz):[/] {actual_fetch:.1f}/{freq}    "
-            f"[cyan]Render (Hz):[/] {actual_render:.1f}/20    "
-            f"[red]Overruns:[/] {overrun_count}"
-        )
-
-    # initial renderable
-    renderable = Group(title, make_table(states, scale), make_status_text())
-    with Live(renderable, console=console, refresh_per_second=25, screen=True) as live:
-        next_time = asyncio.get_event_loop().time()
-        while True:
-            now = asyncio.get_event_loop().time()
-            if now > next_time:
-                overrun_count += 1
-                next_time = now
-            else:
-                await asyncio.sleep(next_time - now)
-            next_time += render_interval
-
-            # grab freshest data if available
             try:
-                states = queue.get_nowait()
-            except asyncio.QueueEmpty:
+                states = actuator_q.get_nowait()
+            except queue.Empty:
                 pass
 
-            render_count += 1
-            live.update(Group(title, make_table(states, scale), make_status_text()))
+            live.update(Group(title, make_table(states, scale)))
+            await asyncio.sleep(render_interval)

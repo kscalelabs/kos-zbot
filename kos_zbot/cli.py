@@ -1,196 +1,187 @@
 import click
+import asyncio
 from tabulate import tabulate
 from pykos import KOS
-import asyncio
-
 from kos_zbot.tools.status_display import show_status
+from google.protobuf.json_format import MessageToDict
 
 
+class MainGroup(click.Group):
+    def list_commands(self, ctx):
+        return ['service', 'status', 'actuator', 'test']
 
-@click.group()
+
+class ActuatorGroup(click.Group):
+    def list_commands(self, ctx):
+        return ['move', 'scan', 'torque', 'zero', 'dump']
+
+
+@click.group(
+    cls=MainGroup,
+    invoke_without_command=True,
+    no_args_is_help=True,
+    context_settings={'help_option_names': ['-h', '--help']},
+    help="KOS ZBot Command Line Interface."
+)
 def cli():
-    """KOS ZBot Command Line Interface."""
+    """Main entry point for the KOS ZBot CLI."""
     pass
+
 
 @cli.command()
 def service():
     """Start the KOS service."""
-    # Import and run your service logic here
     from kos_zbot.kos import main as service_main
     service_main()
 
+
 @cli.command()
+@click.option(
+    "--scale", type=float, default=50.0, show_default=True, metavar="DEG",
+    help="Max |position| in degrees for bar scaling."
+)
+def status(scale):
+    """Show live system status"""
+    asyncio.run(show_status(scale=scale))
+
+
+@cli.group(
+    'actuator',
+    cls=ActuatorGroup,
+    help="Actuator-specific operations."
+)
+def actuator():
+    """Commands for querying and configuring actuators."""
+    pass
+
+
+cli.add_command(actuator)
+
+
+@actuator.command()
+@click.argument('ids', nargs=-1, type=int)
+@click.argument('positions', nargs=-1, type=float)
+def move(ids, positions):
+    """Move actuators to specified positions."""
+    click.echo(f"Moving IDs {ids} to positions {positions}")
+
+
+@actuator.command()
 def scan():
     """Scan for available actuators."""
-    # Call your scan logic here
     click.echo("Scanning for actuators...")
 
 
-@cli.command()
-@click.option("--freq",  type=int,   default=None,  help="…")
-@click.option("--scale", type=float, default=50.0, help="Max |position| for bar scaling.")
-def status(freq, scale):
-    asyncio.run(show_status(freq=freq, scale=scale))
-
-
-@cli.command()
+@actuator.command()
 @click.argument('action', type=click.Choice(['enable', 'disable']))
 @click.argument('ids', required=True)
 def torque(action, ids):
-    """Enable or disable torque for given actuator IDs (comma-separated or 'all')."""
-    import asyncio
-
+    """Enable or disable torque for given actuator IDs."""
     async def _torque():
         kos = KOS("127.0.0.1")
-        # Get all actuator IDs if 'all' is specified
-        if ids.lower() == "all":
-            status = await kos.actuator.get_actuators_state()
-            actuator_ids = [state.actuator_id for state in status.states]
+        if ids.lower() == 'all':
+            resp = await kos.actuator.get_actuators_state()
+            actuator_ids = [s.actuator_id for s in resp.states]
         else:
             try:
-                actuator_ids = [int(id.strip()) for id in ids.split(",")]
+                actuator_ids = [int(i.strip()) for i in ids.split(',')]
             except ValueError:
                 click.echo("Error: IDs must be comma-separated integers or 'all'")
                 return
-
-        enable = action == "enable"
-        print(enable)
-        for actuator_id in actuator_ids:
-            await kos.actuator.configure_actuator(actuator_id=actuator_id, torque_enabled=enable)
+        enable = (action == 'enable')
+        for aid in actuator_ids:
+            await kos.actuator.configure_actuator(actuator_id=aid, torque_enabled=enable)
         click.echo(f"Torque {'enabled' if enable else 'disabled'} for: {actuator_ids}")
-
     asyncio.run(_torque())
 
-@cli.command()
+
+@actuator.command()
 @click.argument('ids', required=True)
 def zero(ids):
     """Zero the given actuator IDs (comma-separated or 'all')."""
-    import asyncio
-
     async def _zero():
         kos = KOS("127.0.0.1")
-        # Get all actuator IDs if 'all' is specified
-        if ids.lower() == "all":
-            status = await kos.actuator.get_actuators_state()
-            actuator_ids = [state.actuator_id for state in status.states]
+        if ids.lower() == 'all':
+            resp = await kos.actuator.get_actuators_state()
+            actuator_ids = [s.actuator_id for s in resp.states]
         else:
             try:
-                actuator_ids = [int(id.strip()) for id in ids.split(",")]
+                actuator_ids = [int(i.strip()) for i in ids.split(',')]
             except ValueError:
                 click.echo("Error: IDs must be comma-separated integers or 'all'")
                 return
-        print(f"Zeroing actuators: {actuator_ids}")
-        # Get original positions
-        orig_status = await kos.actuator.get_actuators_state(actuator_ids)
-        orig_positions = {state.actuator_id: state.position for state in orig_status.states}
-
-        # Zero each actuator
-        for actuator_id in actuator_ids:
-            await kos.actuator.configure_actuator(actuator_id=actuator_id, zero_position=True)
-            await asyncio.sleep(0.2)  # Give hardware time
-
+        orig = await kos.actuator.get_actuators_state(actuator_ids)
+        orig_pos = {s.actuator_id: s.position for s in orig.states}
+        for aid in actuator_ids:
+            await kos.actuator.configure_actuator(actuator_id=aid, zero_position=True)
+            await asyncio.sleep(0.2)
         await asyncio.sleep(3)
-        # Get new positions
-        new_status = await kos.actuator.get_actuators_state(actuator_ids)
-        new_positions = {state.actuator_id: state.position for state in new_status.states}
-
-        # Prepare table
-        headers = ["ID", "Original Position (°)", "New Position (°)"]
-        table = []
-        for actuator_id in actuator_ids:
-            table.append([
-                actuator_id,
-                f"{orig_positions.get(actuator_id, 'N/A'):.2f}",
-                f"{new_positions.get(actuator_id, 'N/A'):.2f}"
-            ])
-        click.echo(tabulate(table, headers=headers, tablefmt="simple"))
-
+        new = await kos.actuator.get_actuators_state(actuator_ids)
+        new_pos = {s.actuator_id: s.position for s in new.states}
+        headers = ["ID", "Original (°)", "New (°)"]
+        rows = [
+            [aid, f"{orig_pos.get(aid, 'N/A'):.2f}", f"{new_pos.get(aid, 'N/A'):.2f}"]
+            for aid in actuator_ids
+        ]
+        click.echo(tabulate(rows, headers=headers, tablefmt="simple"))
     asyncio.run(_zero())
 
-@cli.command()
-@click.argument('ids', required=True)
-@click.option('--diff', is_flag=True, help="Only show parameters that differ between actuators.")
-def dump(ids, diff):
-    """Dump parameters from actuator IDs (comma-separated or 'all')."""
-    import asyncio
-    from google.protobuf.json_format import MessageToDict
 
+@actuator.command()
+@click.argument('ids', required=True)
+@click.option('--diff', is_flag=True, help="Only show parameters that differ.")
+def dump(ids, diff):
+    """Dump parameters from actuator IDs."""
     async def _dump():
         kos = KOS("127.0.0.1")
-
-        # Determine actuator IDs
-        if ids.lower() == "all":
-            status = await kos.actuator.get_actuators_state()
-            actuator_ids = [s.actuator_id for s in status.states]
+        if ids.lower() == 'all':
+            resp = await kos.actuator.get_actuators_state()
+            actuator_ids = [s.actuator_id for s in resp.states]
         else:
             try:
-                actuator_ids = [int(i.strip()) for i in ids.split(",")]
+                actuator_ids = [int(i.strip()) for i in ids.split(',')]
             except ValueError:
                 click.echo("Error: IDs must be comma-separated integers or 'all'")
                 return
-
-        # Call the GetParameters gRPC endpoint
-        response = await kos.actuator.parameter_dump(actuator_ids)
-
-        # Convert to dictionary: {actuator_id: {param: value}}
-        param_map = {}
-        for entry in response.entries:
-            struct_dict = MessageToDict(entry.parameters, preserving_proto_field_name=True)
-            param_map[entry.actuator_id] = struct_dict
-
-        all_param_names = set(
-            k for params in param_map.values() for k in params.keys()
+        resp = await kos.actuator.parameter_dump(actuator_ids)
+        param_map = {
+            entry.actuator_id: MessageToDict(entry.parameters, preserving_proto_field_name=True)
+            for entry in resp.entries
+        }
+        first = next(iter(param_map))
+        names = sorted(
+            param_map[first].keys(),
+            key=lambda k: int(param_map[first][k]['addr'])
         )
-
-        # Build a mapping from param name to address (using the first actuator as reference)
-        param_addr_map = {name: param_map[actuator_ids[0]][name]["addr"] for name in all_param_names if name in param_map[actuator_ids[0]]}
-
-        sorted_param_names = sorted(
-            all_param_names,
-            key=lambda name: int(param_addr_map.get(name, 9999))
-        )
-
-    
-        # Build table data
-        headers = ["Parameter"] + [str(aid) for aid in actuator_ids]
         rows = []
-
-        for param in sorted_param_names:
-            values = []
-            unique_values = set()
-            for aid in actuator_ids:
-                val = param_map.get(aid, {}).get(param, {}).get("value", "N/A")
-                unique_values.add(str(val))
-                values.append(str(val))
-            
-            if diff and len(unique_values) <= 1:
-                continue  # Skip if no difference
-            
-            row = [param] + values
-            rows.append(row)
-
+        for name in names:
+            vals = [
+                str(param_map.get(aid, {}).get(name, {}).get('value', 'N/A'))
+                for aid in actuator_ids
+            ]
+            if diff and len(set(vals)) == 1:
+                continue
+            rows.append([name] + vals)
         if not rows:
             click.echo("No differing parameters found." if diff else "No parameters found.")
             return
-
+        headers = ["Parameter"] + [str(a) for a in actuator_ids]
         click.echo(tabulate(rows, headers=headers, tablefmt="simple"))
-
     asyncio.run(_dump())
 
 
-@cli.group()
+@cli.group(cls=click.Group, help="Run built-in tests.")
 def test():
     """Test commands."""
     pass
+
 
 @test.command()
 def sync_wave():
     """Run the sync_wave test."""
     import asyncio
     from kos_zbot.tests.sync_wave import run_sine_test
-
-    # These should match the ACTUATOR_IDS and TEST_CONFIG in sync_wave.py
-    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 41, 42, 43, 44, 45, 46]
+    ACTUATOR_IDS = [11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46]
     TEST_CONFIG = {
         "kos_ip": "192.168.42.1",
         "amplitude": 10.0,
@@ -200,42 +191,10 @@ def sync_wave():
         "start_pos": 0.0,
         "sync_all": False,
         "wave_patterns": {
-            "pair_1": {
-                "actuators": [11, 12, 13, 14],
-                "amplitude": 15.0,
-                "frequency": 0.5,
-                "phase_offset": 0.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 0.0,
-                "position_offset": 10.0
-            },
-            "pair_2": {
-                "actuators": [21, 22, 23, 24],
-                "amplitude": 15.0,
-                "frequency": 1.0,
-                "phase_offset": 90.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 10.0,
-                "position_offset": -10.0
-            },
-            "group_3": {
-                "actuators": [31, 32, 33, 34, 35, 36],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 180.0,
-                "freq_multiplier": 2.0,
-                "start_pos": 20.0,
-                "position_offset": 15.0
-            },
-            "group_4": {
-                "actuators": [41, 42, 43, 44, 45, 46],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 0.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 30.0,
-                "position_offset": 10.0
-            }
+            "pair_1": {"actuators": [11,12,13,14], "amplitude": 15.0, "frequency": 0.5, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 10.0},
+            "pair_2": {"actuators": [21,22,23,24], "amplitude": 15.0, "frequency": 1.0, "phase_offset": 90.0, "freq_multiplier": 1.0, "start_pos": 10.0, "position_offset": -10.0},
+            "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 10.0, "frequency": 0.5, "phase_offset": 180.0, "freq_multiplier": 2.0, "start_pos": 20.0, "position_offset": 15.0},
+            "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 10.0, "frequency": 0.5, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 30.0, "position_offset": 10.0},
         },
         "kp": 20.0,
         "kd": 10.0,
@@ -246,13 +205,13 @@ def sync_wave():
     }
     asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))
 
+
 @test.command()
 def sync_step():
     """Run the sync_step test."""
     import asyncio
     from kos_zbot.tests.sync_step import run_step_test
-
-    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24, 31, 32, 33, 34, 35, 36, 41, 42, 43, 44, 45, 46]
+    ACTUATOR_IDS = [11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46]
     TEST_CONFIG = {
         "kos_ip": "127.0.0.1",
         "step_size": 4.0,
@@ -272,16 +231,12 @@ def sync_step():
     }
     asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))
 
+
 @test.command()
 def imu():
+    """Run the IMU test."""
     click.echo("Running IMU test...")
 
-@cli.command()
-@click.argument('ids', nargs=-1, type=int)
-@click.argument('positions', nargs=-1, type=float)
-def move(ids, positions):
-    """Move actuators to specified positions."""
-    click.echo(f"Moving IDs {ids} to positions {positions}")
 
 if __name__ == '__main__':
     cli()

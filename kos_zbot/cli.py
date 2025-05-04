@@ -2,7 +2,10 @@ import click
 from tabulate import tabulate
 from pykos import KOS
 import asyncio
-import time
+
+from kos_zbot.tools.status_display import show_status
+
+
 
 @click.group()
 def cli():
@@ -22,52 +25,13 @@ def scan():
     # Call your scan logic here
     click.echo("Scanning for actuators...")
 
+
 @cli.command()
-@click.option('--freq', type=int, default=None, help="Polling frequency in Hz (e.g., --freq 50 for 50Hz polling).")
-def status(freq):
-    """Show status of actuators. Optionally poll at a given frequency (Hz) with --freq."""
-    from pykos import KOS
-    from tabulate import tabulate
-    import time
+@click.option("--freq",  type=int,   default=None,  help="…")
+@click.option("--scale", type=float, default=50.0, help="Max |position| for bar scaling.")
+def status(freq, scale):
+    asyncio.run(show_status(freq=freq, scale=scale))
 
-    async def _status():
-        kos = KOS("127.0.0.1")
-        headers = ["ID", "Position (°)", "Torque", "Faults"]
-        overrun_count = 0
-
-        def print_table(response, overrun_count):
-            table = []
-            for state in response.states:
-                table.append([
-                    state.actuator_id,
-                    f"{state.position:.2f}",
-                    "ON" if state.online else "OFF",
-                    ", ".join(state.faults) if state.faults else ""
-                ])
-            click.clear()
-            click.echo(tabulate(table, headers=headers, tablefmt="simple"))
-            if freq:
-                click.echo(f"\nTiming overruns: {overrun_count}")
-
-        if freq:
-            interval = 1.0 / freq
-            try:
-                while True:
-                    start = time.perf_counter()
-                    response = await kos.actuator.get_actuators_state()
-                    elapsed = time.perf_counter() - start
-                    if elapsed > interval:
-                        overrun_count += 1
-                    print_table(response, overrun_count)
-                    sleep_time = max(0, interval - elapsed)
-                    await asyncio.sleep(sleep_time)
-            except KeyboardInterrupt:
-                click.echo("Stopped polling.")
-        else:
-            response = await kos.actuator.get_actuators_state()
-            print_table(response, overrun_count)
-
-    asyncio.run(_status())
 
 @cli.command()
 @click.argument('action', type=click.Choice(['enable', 'disable']))

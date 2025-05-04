@@ -2,26 +2,38 @@ import asyncio
 import time
 import random
 from pykos import KOS
+import logging
+import signal
+
+def get_logger(name):
+    logger = logging.getLogger(name)
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)  # Or DEBUG for more verbosity
+    return logger
 
 async def run_step_test(
     actuator_ids: list[int],
     kos_ip: str = "127.0.0.1",
     # Basic step parameters
     step_size: float = 10.0,        # degrees
-    step_hold_time: float = 2.0,    # seconds
-    step_count: int = 3,
+    step_hold_time: float = 0.02,    # seconds
+    step_count: int = 5000,
     start_pos: float = 0.0,         # degrees
     # Motor parameters
     kp: float = 20.0,
     kd: float = 5.0,
     ki: float = 0.0,
     max_torque: float = 100.0,
-    acceleration: float = 0.0,
+    acceleration: float = 1000.0,
     torque_enabled: bool = True,
     # Random step parameters
     random_mode: bool = False,
-    step_min: float = 5.0,         # degrees
-    step_max: float = 15.0,        # degrees
+    step_min: float = 1.0,         # degrees
+    step_max: float = 5.0,        # degrees
     max_total: float = 30.0,       # degrees
     seed: int = None
 ):
@@ -39,22 +51,28 @@ async def run_step_test(
         ki: Integral gain
         max_torque: Maximum torque limit
         acceleration: Acceleration limit (0 = unlimited)
-        random_mode: If True, use random step sizes
         step_min: Minimum random step size in degrees
         step_max: Maximum random step size in degrees
         max_total: Maximum total deviation from start position
         seed: Random seed for reproducibility
     """
-    # Set random seed if provided
+    log = get_logger(__name__)
+
+    interrupted = False
+    def handle_sigint(signum, frame):
+        nonlocal interrupted
+        interrupted = True
+        log.info("sigint received")
+
+    signal.signal(signal.SIGINT, handle_sigint)
+
     if seed is not None:
         random.seed(seed)
-        print(f"Using random seed: {seed}")
 
-    # Connect to KOS
     kos = KOS(kos_ip)
     
     # Configure each actuator
-    print("\nConfiguring actuators...")
+    log.info("configure actuators")
     for actuator_id in actuator_ids:
         await kos.actuator.configure_actuator(
             actuator_id=actuator_id,
@@ -65,10 +83,9 @@ async def run_step_test(
             max_torque=max_torque,
             torque_enabled=torque_enabled
         )
-        print(f"Actuator {actuator_id} configured with torque_enabled={torque_enabled}")
     
     # Move to start position
-    print(f"\nMoving to start position: {start_pos}°")
+    log.info(f"move to start position {start_pos}°")
     commands = [
         {
             'actuator_id': actuator_id,
@@ -79,113 +96,62 @@ async def run_step_test(
     await kos.actuator.command_actuators(commands)
     
     # Wait for settling
-    await asyncio.sleep(2.0)
+    await asyncio.sleep(1.0)
     
-    if random_mode:
-        print("\nGenerating random step sequence:")
-        steps = []
-        current_pos = start_pos
+    log.info(f"compute sequence with seed {seed}")
+    steps = []
+    current_pos = start_pos
+    
+    for step_num in range(step_count):
+        if interrupted:
+            break
+        # Generate random step size (magnitude only)
+        step_size = random.uniform(step_min, step_max)
         
-        for step_num in range(step_count):
-            # Generate random step size (magnitude only)
-            step_size = random.uniform(step_min, step_max)
-            
-            # Determine valid directions based on bounds
-            valid_directions = []
-            
-            # Check if we can move positive
-            if (current_pos + step_size) <= (start_pos + max_total):
-                valid_directions.append(1)
-            
-            # Check if we can move negative
-            if (current_pos - step_size) >= (start_pos - max_total):
-                valid_directions.append(-1)
-            
-            # If no valid directions (shouldn't happen with proper bounds), stay put
-            if not valid_directions:
-                direction = 0
-            else:
-                direction = random.choice(valid_directions)
-            
-            # Calculate next position
-            target_pos = current_pos + (step_size * direction)
-            steps.append(target_pos)
-            current_pos = target_pos
-            
-            #print(f"Step {step_num + 1}: to {target_pos:.2f}° (delta={step_size * direction:.2f}°, total offset={target_pos - start_pos:.2f}°)")
+        # Determine valid directions based on bounds
+        valid_directions = []
         
-        print("\nExecuting step sequence...")
-        for i, target_pos in enumerate(steps, 1):
-            commands = [
-                {
-                    'actuator_id': actuator_id,
-                    'position': target_pos,
-                }
-                for actuator_id in actuator_ids
-            ]
-            await kos.actuator.command_actuators(commands)
-            await asyncio.sleep(step_hold_time)
+        # Check if we can move positive
+        if (current_pos + step_size) <= (start_pos + max_total):
+            valid_directions.append(1)
+        
+        # Check if we can move negative
+        if (current_pos - step_size) >= (start_pos - max_total):
+            valid_directions.append(-1)
+        
+        # If no valid directions (shouldn't happen with proper bounds), stay put
+        if not valid_directions:
+            direction = 0
+        else:
+            direction = random.choice(valid_directions)
+        
+        # Calculate next position
+        target_pos = current_pos + (step_size * direction)
+        steps.append(target_pos)
+        current_pos = target_pos
+
     
-    else:
-        print("\nStarting fixed step test...")
-        for step in range(step_count):
-            # Step up
-            target_pos = start_pos + step_size
-            print(f"\nStep {step + 1}/{step_count} UP to {target_pos}°")
-            commands = [
-                {
-                    'actuator_id': actuator_id,
-                    'position': target_pos,
-                }
-                for actuator_id in actuator_ids
-            ]
-            await kos.actuator.command_actuators(commands)
-            await asyncio.sleep(step_hold_time)
-            
-            # Step down
-            print(f"Step {step + 1}/{step_count} DOWN to {start_pos}°")
-            commands = [
-                {
-                    'actuator_id': actuator_id,
-                    'position': start_pos,
-                }
-                for actuator_id in actuator_ids
-            ]
-            await kos.actuator.command_actuators(commands)
-            await asyncio.sleep(step_hold_time)
-    
+    log.info("running")
+    for i, target_pos in enumerate(steps, 1):
+        if interrupted:
+            break
+
+        commands = [
+            {
+                'actuator_id': actuator_id,
+                'position': target_pos,
+            }
+            for actuator_id in actuator_ids
+        ]
+        await kos.actuator.command_actuators(commands)
+        await asyncio.sleep(step_hold_time)
+     
+    log.info("return to start position")
+    commands = [
+        {'actuator_id': aid, 'position': start_pos}
+        for aid in actuator_ids
+    ]
+    await kos.actuator.command_actuators(commands)
+    await asyncio.sleep(1.0)
     await kos.close()
-    print("\nTest complete!")
-
-
-if __name__ == "__main__":
-    ACTUATOR_IDS = [11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46]
-    
-    # Test parameters
-    TEST_CONFIG = {
-        # Connection settings
-        "kos_ip": "127.0.0.1",  # Replace with your KOS IP
-        
-        # Basic step parameters
-        "step_size": 4.0,         # degrees
-        "step_hold_time": 0.02,     # seconds
-        "step_count": 1000,
-        "start_pos": 0.0,          # degrees
-        
-        # Motor parameters
-        "kp": 20.0,
-        "kd": 10.0,
-        "ki": 0.0,
-        "max_torque": 100.0,
-        "acceleration": 1000.0,
-        "torque_enabled": True,
-        
-        # Random step parameters
-        "random_mode": True,        # Set to True to use random steps
-        "step_min": 1.0,            # degrees
-        "step_max": 5.0,           # degrees
-        "max_total": 30.0,          # +- max position from start position
-        "seed": 44                  # Random seed (None for true random)
-    }
-    
-    asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))
+    log.info("Test complete")

@@ -231,7 +231,7 @@ def sync_wave():
         "kos_ip": "192.168.42.1",
         "amplitude": 10.0,
         "frequency": 0.5,
-        "duration": 100.0,
+        "duration": 3600.0,
         "sample_rate": 50.0,
         "start_pos": 0.0,
         "sync_all": False,

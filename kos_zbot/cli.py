@@ -4,6 +4,9 @@ from tabulate import tabulate
 from pykos import KOS
 from kos_zbot.tools.status_display import show_status
 from kos_zbot.tools.actuator_dump import actuator_dump
+from kos_zbot.tools.actuator_move import actuator_move
+from kos_zbot.tools.actuator_torque import actuator_torque
+from kos_zbot.tools.actuator_zero import actuator_zero
 from google.protobuf.json_format import MessageToDict
 
 
@@ -60,11 +63,15 @@ cli.add_command(actuator)
 
 
 @actuator.command()
-@click.argument('ids', nargs=-1, type=int)
-@click.argument('positions', nargs=-1, type=float)
-def move(ids, positions):
-    """Move actuators to specified positions."""
-    click.echo(f"Moving IDs {ids} to positions {positions}")
+@click.argument('ids', required=True)
+@click.argument('positions', nargs=-1, type=float, required=True)
+@click.option('--kp', type=float, default=None, help="Position gain (optional)")
+@click.option('--kd', type=float, default=None, help="Velocity gain (optional)")
+@click.option('--acceleration', type=float, default=None, help="Acceleration (optional)")
+@click.option('--wait', type=float, default=3.0, show_default=True, help="Seconds to wait for actuators to reach target")
+def move(ids, positions, kp, kd, acceleration, wait):
+    from kos_zbot.tools.actuator_move import actuator_move
+    asyncio.run(actuator_move(ids, positions, kp, kd, acceleration, wait))
 
 
 @actuator.command()

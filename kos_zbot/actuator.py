@@ -418,11 +418,6 @@ class SCSMotorController:
             if data_result and error == 0:
                 position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
                 new_positions[actuator_id] = position
-                
-                # Reset error count if enough time has passed since last error
-                last_error = self.last_error_time.get(actuator_id, 0)
-                if current_time - last_error >= self.error_reset_period:
-                    self.read_error_counts[actuator_id] = 0
             else:
                 # Increment error count and update last error time
                 self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1

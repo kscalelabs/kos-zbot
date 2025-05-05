@@ -11,7 +11,7 @@ setup(
     install_requires=[
         'pyserial==3.5',
         'grpcio',
-        'pykos',
+        'pykos>=0.7.7',
         'adafruit-circuitpython-bno055',
         'psutil',
         'tabulate',
@@ -24,7 +24,8 @@ setup(
         'pyee',
         'openai[realtime]',
         'protobuf==5.29.0',
-        'click'
+        'click',
+        'rich'
     ],
     entry_points={
         'console_scripts': [

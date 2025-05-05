@@ -116,7 +116,6 @@ class SCSMotorController:
         self._target_positions_lock = threading.Lock()
 
         self.read_error_counts = {}  # Track read errors per servo
-        self.MAX_ERRORS = 10  # Maximum number of consecutive errors before removing servo
         self.error_reset_period = 5.0  # Reset error counts after 5 seconds of success
         self.last_error_time = {}  # Track when error count was last incremented
         self.fault_history = {}  # Track fault history
@@ -408,6 +407,8 @@ class SCSMotorController:
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
             self.log.error(f"group sync read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
+            for actuator_id in list(self.actuator_ids): 
+                self._record_fault(actuator_id, "groupsync read error")
             return
                 
         # If group sync read succeeded, check individual servos
@@ -426,14 +427,9 @@ class SCSMotorController:
                 # Increment error count and update last error time
                 self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
                 self.last_error_time[actuator_id] = current_time
-                self._record_fault(actuator_id, "fail to read")
+                self._record_fault(actuator_id, "read error")
                 self.log.error(f"failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
                 
-                # Check if we should remove the actuator
-                if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                    self.log.error(f"removing actuator {actuator_id} due to repeated read failures")
-                    self._remove_actuator(actuator_id)
-                    self.group_sync_read.removeParam(actuator_id)
 
             # Write to the inactive buffer
             inactive = self._positions_b if self._active_positions is self._positions_a else self._positions_a

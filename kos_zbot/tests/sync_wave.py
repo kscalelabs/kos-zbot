@@ -1,20 +1,34 @@
 import asyncio
 import time
 import numpy as np
+import signal
 from pykos import KOS
+import logging
+from kos_zbot.tests.kos_connection import kos_ready_async
+
+def get_logger(name):
+    logger = logging.getLogger(name)
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)  # Or DEBUG for more verbosity
+    return logger
+
 
 async def run_sine_test(
     actuator_ids: list[int],
     kos_ip: str = "127.0.0.1",
     # Sine wave parameters
-    amplitude: float = 10.0,        # degrees
-    frequency: float = 1.0,         # Hz
-    duration: float = 20.0,         # seconds
-    sample_rate: float = 50.0,      # Hz
-    start_pos: float = 0.0,         # degrees
+    amplitude: float = 10.0,  # degrees
+    frequency: float = 1.0,  # Hz
+    duration: float = 20.0,  # seconds
+    sample_rate: float = 50.0,  # Hz
+    start_pos: float = 0.0,  # degrees
     # Pattern configuration
-    sync_all: bool = True,          # If True, all actuators move in sync
-    wave_patterns: dict = None,     # Dict of pattern configurations
+    sync_all: bool = True,  # If True, all actuators move in sync
+    wave_patterns: dict = None,  # Dict of pattern configurations
     # Motor parameters
     kp: float = 20.0,
     kd: float = 5.0,
@@ -23,160 +37,115 @@ async def run_sine_test(
     acceleration: float = 0.0,
     torque_enabled: bool = True,
 ):
-    print(f"kos_ip: {kos_ip}")
-    kos = KOS(kos_ip)
+    """Run a sine wave test on specified actuators.
 
-    # Configure each actuator
-    print("\nConfiguring actuators...")
+    Args:
+        actuator_ids: List of actuator IDs to test
+        kos_ip: IP address of the KOS device
+        amplitude: Amplitude of the sine wave in degrees
+        frequency: Frequency of the sine wave in Hz
+        duration: Duration of the test in seconds
+        sample_rate: Sample rate of the test in Hz
+        start_pos: Starting position of the test in degrees
+        sync_all: If True, all actuators move in sync
+        wave_patterns: Dict of pattern configurations
+        kp: Position gain
+        kd: Velocity gain
+        ki: Integral gain
+        max_torque: Maximum torque limit
+        acceleration: Acceleration limit (0 = unlimited)
+        torque_enabled: If True, torque is enabled
+    """
+
+    log = get_logger(__name__)
+    if await kos_ready_async(kos_ip):
+        kos = KOS(kos_ip)
+    else:
+        log.error("KOS service not available at %s:50051", kos_ip)
+        return
+
+    interrupted = False
+
+    def handle_sigint(signum, frame):
+        nonlocal interrupted
+        interrupted = True
+        log.info("sigint received")
+
+    signal.signal(signal.SIGINT, handle_sigint)
+
+    log.info("configure actuators")
     for actuator_id in actuator_ids:
         await kos.actuator.configure_actuator(
             actuator_id=actuator_id,
-            kp=kp, kd=kd, ki=ki,
+            kp=kp,
+            kd=kd,
+            ki=ki,
             acceleration=acceleration,
             max_torque=max_torque,
-            torque_enabled=torque_enabled
+            torque_enabled=torque_enabled,
         )
-    
-    # Move to start positions (now per pattern)
-    print("\nMoving to start positions...")
+
+    log.info("move to start position")
     commands = []
     for pattern in wave_patterns.values():
-        pattern_start_pos = pattern.get('start_pos', start_pos)
-        for aid in pattern['actuators']:
-            commands.append({
-                'actuator_id': aid,
-                'position': pattern_start_pos
-            })
+        pattern_start_pos = pattern.get("start_pos", start_pos)
+        for aid in pattern["actuators"]:
+            commands.append({"actuator_id": aid, "position": pattern_start_pos})
     await kos.actuator.command_actuators(commands)
     await asyncio.sleep(2.0)
 
-    t = np.arange(0, duration, 1/sample_rate)
-    
-    print("\nStarting sine wave patterns...")
+    t = np.arange(0, duration, 1 / sample_rate)
+
+    log.info("running")
     start_time = time.time()
-    
+
     try:
         for current_time in t:
+            if interrupted:
+                break
+
             commands = []
-            
+
             if sync_all:
-                # All actuators follow base parameters
                 for aid in actuator_ids:
                     angle = 2 * np.pi * frequency * current_time
                     position = start_pos + amplitude * np.sin(angle)
-                    commands.append({
-                        'actuator_id': aid,
-                        'position': position
-                    })
+                    commands.append({"actuator_id": aid, "position": position})
             else:
-                # Apply specific pattern parameters
                 for pattern_name, pattern in wave_patterns.items():
-                    pattern_amp = pattern.get('amplitude', amplitude)
-                    pattern_freq = pattern.get('frequency', frequency)
-                    pattern_phase = pattern.get('phase_offset', 0.0)
-                    pattern_freq_mult = pattern.get('freq_multiplier', 1.0)
-                    pattern_start = pattern.get('start_pos', start_pos)
-                    pattern_pos_offset = pattern.get('position_offset', 0.0)
-                    
-                    for aid in pattern['actuators']:
-                        angle = (2 * np.pi * pattern_freq * pattern_freq_mult * current_time + 
-                               np.deg2rad(pattern_phase))
-                        position = (pattern_start + 
-                                  pattern_amp * np.sin(angle) + 
-                                  pattern_pos_offset)  # Add position offset
-                        commands.append({
-                            'actuator_id': aid,
-                            'position': position
-                        })
-            
+                    pattern_amp = pattern.get("amplitude", amplitude)
+                    pattern_freq = pattern.get("frequency", frequency)
+                    pattern_phase = pattern.get("phase_offset", 0.0)
+                    pattern_freq_mult = pattern.get("freq_multiplier", 1.0)
+                    pattern_start = pattern.get("start_pos", start_pos)
+                    pattern_pos_offset = pattern.get("position_offset", 0.0)
+
+                    for aid in pattern["actuators"]:
+                        angle = (
+                            2 * np.pi * pattern_freq * pattern_freq_mult * current_time
+                            + np.deg2rad(pattern_phase)
+                        )
+                        position = (
+                            pattern_start
+                            + pattern_amp * np.sin(angle)
+                            + pattern_pos_offset
+                        )
+                        commands.append({"actuator_id": aid, "position": position})
+
             await kos.actuator.command_actuators(commands)
-            
-            # Maintain timing
+
             next_time = start_time + current_time
             sleep_time = next_time - time.time()
             if sleep_time > 0:
                 await asyncio.sleep(sleep_time)
-    
-    except KeyboardInterrupt:
-        print("\nTest interrupted!")
-    
-    # Return to start position
-    print("\nReturning to start position...")
-    commands = [
-        {'actuator_id': aid, 'position': start_pos}
-        for aid in actuator_ids
-    ]
-    await kos.actuator.command_actuators(commands)
-    await asyncio.sleep(1.0)
-    
-    await kos.close()
-    print("\nTest complete!")
 
-if __name__ == "__main__":
-    ACTUATOR_IDS = [11, 12, 13, 14, 21, 22, 23, 24,31,32,33,34,35,36,41,42,43,44,45,46]
-    
-    TEST_CONFIG = {
-        "kos_ip": "192.168.42.1",
-        
-        # Sine wave parameters
-        "amplitude": 10.0,          # degrees
-        "frequency": 0.5,           # Hz
-        "duration": 100.0,           # seconds
-        "sample_rate": 50.0,        # Hz
-        "start_pos": 0.0,           # degrees
-        
-                
-        # Pattern configuration
-        "sync_all": False,
-        "wave_patterns": {
-            # Example: First two actuators in sync, offset upward
-            "pair_1": {
-                "actuators": [11, 12,13,14],
-                "amplitude": 15.0,
-                "frequency": 0.5,
-                "phase_offset": 0.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 0.0,
-                "position_offset": 10.0  # Shifts wave up by 10 degrees
-            },
-            # Example: Second pair with phase offset, offset downward
-            "pair_2": {
-                "actuators": [21, 22,23,24],
-                "amplitude": 15.0,
-                "frequency": 1.0,
-                "phase_offset": 90.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 10.0,
-                "position_offset": -10.0  # Shifts wave down by 10 degrees
-            },
-            # Example: Third group with different frequency and diagonal offset
-            "group_3": {
-                "actuators": [31, 32, 33, 34, 35, 36],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 180.0,
-                "freq_multiplier": 2.0,
-                "start_pos": 20.0,
-                "position_offset": 15.0  # Shifts wave up by 15 degrees
-            },
-            "group_4": {
-                "actuators": [41, 42, 43, 44, 45, 46],
-                "amplitude": 10.0,
-                "frequency": 0.5,
-                "phase_offset": 0.0,
-                "freq_multiplier": 1.0,
-                "start_pos": 30.0,
-                "position_offset": 10.0  # Shifts wave up by 10 degrees
-            }
-        },
-        
-        # Motor parameters
-        "kp": 20.0,
-        "kd": 10.0,
-        "ki": 0.0,
-        "max_torque": 100.0,
-        "acceleration": 1000.0,
-        "torque_enabled": True,
-    }
-    print("HELLO **********************************")
-    asyncio.run(run_sine_test(ACTUATOR_IDS, **TEST_CONFIG))
+    except Exception as e:
+        log.error(f"exception during test: {e}")
+    finally:
+        log.info("return to start position")
+        commands = [{"actuator_id": aid, "position": start_pos} for aid in actuator_ids]
+        await kos.actuator.command_actuators(commands)
+        await asyncio.sleep(1.0)
+
+        await kos.close()
+        log.info("test complete")

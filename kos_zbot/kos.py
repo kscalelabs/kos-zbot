@@ -3,176 +3,184 @@ import asyncio
 import grpc
 from concurrent import futures
 from google.protobuf import empty_pb2
-from kos_protos import actuator_pb2, actuator_pb2_grpc, common_pb2, imu_pb2, imu_pb2_grpc
-from kos_zbot.actuator import SCSMotorController
+from google.protobuf.struct_pb2 import Struct
+from kos_protos import (
+    actuator_pb2,
+    actuator_pb2_grpc,
+    common_pb2,
+    imu_pb2,
+    imu_pb2_grpc,
+)
+from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager
+import logging
+import signal
+from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
 
-import os 
-import psutil 
-
-
-class MotorController:
-    """Interface for real motor control using SCS servos."""
-    
-    def __init__(self):
-        self.actuator_ids = set() 
-        self.controller = SCSMotorController(device='/dev/ttyAMA5', baudrate=500000, rate=50)
-        self.controller.start()
-        self._lock = asyncio.Lock()
-
-    def _counts_to_degrees(self, counts: float) -> float:
-        return (counts * 360 / 4095) - 180
-        
-    def _degrees_to_counts(self, degrees: float) -> int:
-        return (degrees + 180) * (4095 / 360)
-
-    async def command_actuator(self, commands):
-        """Send commands to multiple actuators atomically. Positions in degrees."""
-        if not commands:
-            return
-            
-        # Create a dictionary mapping each actuator to its commanded position
-        servo_commands = {
-            cmd['actuator_id']: self._degrees_to_counts(cmd['position'])
-            for cmd in commands
-            if cmd['actuator_id'] in self.actuator_ids  # Only include configured actuators
-        }
-        self.controller.set_positions(servo_commands)
-        
-
-    def __del__(self):
-        if self.controller:
-            self.controller.stop()
-
-    async def get_actuator_state(self, actuator_id: int):
-        """Get current actuator state."""
-        if actuator_id not in self.actuator_ids:
-            return actuator_pb2.ActuatorStateResponse(
-                actuator_id=actuator_id,
-                position=0.0,
-                velocity=0.0,
-                online=False,
-                faults=["servo not registered"]
-            )
-            
-        position_raw = self.controller.get_position(actuator_id)
-        if position_raw is None:
-            return actuator_pb2.ActuatorStateResponse(
-                actuator_id=actuator_id,
-                position=0.0,
-                velocity=0.0,
-                online=False,
-                faults=["position read failed"]
-            )
-        
-        torque_enabled = self.controller.get_torque_enabled(actuator_id)
-        position_deg = self._counts_to_degrees(position_raw)
-        return actuator_pb2.ActuatorStateResponse(
-            actuator_id=actuator_id,
-            position=position_deg,
-            velocity=0.0,
-            online=torque_enabled,
-            faults=[]
-        )
-
-    async def configure_actuator(self, actuator_id: int, config: dict):
-        """Configure a single actuator"""
-        async with self._lock:
-            if 'acceleration' in config:
-                if config['acceleration'] != 0:
-                    config['acceleration'] = self._degrees_to_counts(config['acceleration'])
-            
-            # Configure the actuator and add it to our set if successful
-            success = self.controller.configure_actuator(actuator_id, config)
-            if success:
-                self.actuator_ids.add(actuator_id)
-            else:
-                self.actuator_ids.discard(actuator_id)  # Remove if present
-                print(f"Failed to configure actuator {actuator_id}")
-                
-            return success
-
+import os
+import sys
+import fcntl
+import termios
+import time
 
 
 class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
-    def __init__(self, motor_controller):
+    def __init__(self, actuator_controller):
         super().__init__()
-        self.motor_controller = motor_controller
+        self.actuator_controller = actuator_controller
+        self.log = get_logger(__name__)
+        self.temporal_lock = asyncio.Lock()
 
     async def ConfigureActuator(self, request, context):
         """Handle actuator configuration."""
         try:
-            config = {}
-            if request.HasField("torque_enabled"):
-                config["torque_enabled"] = request.torque_enabled
-            if request.HasField("zero_position"):
-                config["zero_position"] = request.zero_position
-            if request.HasField("kp"):
-                config["kp"] = request.kp
-            if request.HasField("kd"):
-                config["kd"] = request.kd
-            if request.HasField("ki"):
-                config["ki"] = request.ki
-            if request.HasField("max_torque"):
-                config["max_torque"] = request.max_torque
-            if request.HasField("acceleration"):
-                config["acceleration"] = request.acceleration
-            if request.HasField("new_actuator_id"):
-                config["new_actuator_id"] = request.new_actuator_id
+            async with self.temporal_lock:
+                config = {}
+                if request.HasField("torque_enabled"):
+                    config["torque_enabled"] = request.torque_enabled
+                if request.HasField("zero_position"):
+                    config["zero_position"] = request.zero_position
+                if request.HasField("kp"):
+                    config["kp"] = request.kp
+                if request.HasField("kd"):
+                    config["kd"] = request.kd
+                if request.HasField("ki"):
+                    config["ki"] = request.ki
+                if request.HasField("max_torque"):
+                    config["max_torque"] = request.max_torque
+                if request.HasField("acceleration"):
+                    config["acceleration"] = request.acceleration
+                if request.HasField("new_actuator_id"):
+                    config["new_actuator_id"] = request.new_actuator_id
 
-            print(f"Configuring actuator {request.actuator_id} with settings: {config}")
-            success = await self.motor_controller.configure_actuator(request.actuator_id, config)
-            
-            return common_pb2.ActionResponse(success=success)
-            
+                success = self.actuator_controller.configure_actuator(
+                    request.actuator_id, config
+                )
+                if not success:
+                    self.log.error(
+                        f"failed to configure actuator {request.actuator_id}"
+                    )
+
+                return common_pb2.ActionResponse(success=success)
+
+        except RuntimeError:
+            context.set_code(grpc.StatusCode.RESOURCE_EXHAUSTED)
+            context.set_details("another control operation is in progress")
+            return common_pb2.ActionResponse(success=False)
+
         except Exception as e:
-            error_msg = f"Error configuring actuator {request.actuator_id}: {str(e)}"
-            print(error_msg)
+            error_msg = f"error configuring actuator {request.actuator_id}: {str(e)}"
+            self.log.error(error_msg)
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(error_msg)
             return common_pb2.ActionResponse(success=False)
 
-
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:
-            commands = [
-                {
-                    'actuator_id': cmd.actuator_id,
-                    'position': cmd.position
+            async with self.temporal_lock:
+                commands = [
+                    {"actuator_id": cmd.actuator_id, "position": cmd.position}
+                    for cmd in request.commands
+                ]
+                servo_commands = {
+                    cmd["actuator_id"]: cmd["position"]
+                    for cmd in commands
+                    if cmd["actuator_id"]
+                    in self.actuator_controller.actuator_ids
                 }
-                for cmd in request.commands
-            ]
+                self.actuator_controller.set_positions(servo_commands)
 
-            await self.motor_controller.command_actuator(commands)
+                return actuator_pb2.CommandActuatorsResponse()
 
-            return actuator_pb2.CommandActuatorsResponse()
+        except RuntimeError:
+            context.set_code(grpc.StatusCode.RESOURCE_EXHAUSTED)
+            context.set_details("Another control operation is in progress.")
+            return common_pb2.ActionResponse(success=False)
+
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
             return actuator_pb2.CommandActuatorsResponse()
 
-        # In the ActuatorService class
-    async def ReadAllParams(self, request, context):
-        """Read all parameters from all servos"""
+    async def ParameterDump(self, request, context):
+        """Return parameter map for each actuator ID requested."""
+
+        def dict_to_struct(d: dict) -> Struct:
+            s = Struct()
+            s.update(d)
+            return s
+
         try:
-            # Call the motor controller's read function
-            self.motor_controller.controller.read_all_servos_params()
-            return common_pb2.ActionResponse(success=True)
+            ids = request.actuator_ids or sorted(self.actuator_controller.actuator_ids)
+            result = []
+            self.log.info(f"ParameterDump request: {ids}")
+            for aid in ids:
+                if aid not in self.actuator_controller.actuator_ids:
+                    self.log.warning(f"actuator {aid} not registered")
+                    continue  # Skip unregistered actuators
+                try:
+                    param_dict = self.actuator_controller.read_all_servo_params(aid)
+                    result.append(
+                        actuator_pb2.ParameterDumpEntry(
+                            actuator_id=aid, parameters=dict_to_struct(param_dict)
+                        )
+                    )
+                except Exception as e:
+                    self.log.warning(
+                        f"failed to read parameters from actuator {aid}: {e}"
+                    )
+                    continue  # Skip on failure
+
+            return actuator_pb2.ParameterDumpResponse(entries=result)
+
         except Exception as e:
-            error_msg = f"Error reading parameters: {str(e)}"
-            print(error_msg)
+            self.log.error(f"failed to handle GetParameters: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
-            context.set_details(error_msg)
-            return common_pb2.ActionResponse(success=False)
+            context.set_details(str(e))
+            return actuator_pb2.ParameterDumpResponse()
 
     async def GetActuatorsState(self, request, context):
         """Handle actuator state requests."""
         try:
-            ids = request.actuator_ids or [1]  # Default to actuator 1 if none specified
+            # If no IDs or 0 is in the list, return all
+            if not request.actuator_ids:
+                ids = sorted(self.actuator_controller.actuator_ids)
+            else:
+                ids = request.actuator_ids
+
             states = []
             for actuator_id in ids:
-                state = await self.motor_controller.get_actuator_state(actuator_id)
+                if actuator_id not in self.actuator_controller.actuator_ids:
+                    state = actuator_pb2.ActuatorStateResponse(
+                        actuator_id=actuator_id,
+                        position=0.0,
+                        velocity=0.0,
+                        online=False,
+                        faults=["servo not registered"],
+                    )
+
+                torque_enabled = self.actuator_controller.get_torque_enabled(
+                    actuator_id
+                )
+                position_deg = self.actuator_controller.get_position(actuator_id)
+                if position_deg is None:
+                    state = actuator_pb2.ActuatorStateResponse(
+                        actuator_id=actuator_id,
+                        position=0.0,
+                        velocity=0.0,
+                        online=False,
+                        faults=["position read failed"],
+                    )
+                else:
+                    state = actuator_pb2.ActuatorStateResponse(
+                        actuator_id=actuator_id,
+                        position=position_deg,
+                        velocity=0.0,
+                        online=torque_enabled,
+                        faults=[],
+                    )
+
                 states.append(state)
             return actuator_pb2.GetActuatorsStateResponse(states=states)
         except Exception as e:
@@ -180,18 +188,22 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
             context.set_details(str(e))
             return actuator_pb2.GetActuatorsStateResponse()
 
+
 class IMUService(imu_pb2_grpc.IMUServiceServicer):
     """Implementation of IMUService that wraps a BNO055 sensor."""
 
     def __init__(self, imu_manager):
         self.imu = imu_manager
+        self.log = get_logger(__name__)
 
     def __del__(self):
         """Ensure cleanup of IMU manager."""
-        if hasattr(self, 'imu'):
+        if hasattr(self, "imu"):
             self.imu.stop()
 
-    async def GetValues(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.IMUValuesResponse:
+    async def GetValues(
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> imu_pb2.IMUValuesResponse:
         """Implements GetValues by reading IMU sensor data."""
         try:
             accel, gyro, mag = self.imu.get_values()
@@ -204,16 +216,16 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 gyro_z=float(gyro[2]),
                 mag_x=float(mag[0]),
                 mag_y=float(mag[1]),
-                mag_z=float(mag[2])
+                mag_z=float(mag[2]),
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return imu_pb2.IMUValuesResponse(
-                error=common_pb2.Error(message=str(e))
-            )
+            return imu_pb2.IMUValuesResponse(error=common_pb2.Error(message=str(e)))
 
-    async def GetQuaternion(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.QuaternionResponse:
+    async def GetQuaternion(
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> imu_pb2.QuaternionResponse:
         """Implements GetQuaternion by reading orientation data."""
         try:
             w, x, y, z = self.imu.get_quaternion()
@@ -223,27 +235,25 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return imu_pb2.QuaternionResponse(
-                error=common_pb2.Error(message=str(e))
-            )
+            return imu_pb2.QuaternionResponse(error=common_pb2.Error(message=str(e)))
 
-    async def GetEuler(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.EulerAnglesResponse:
+    async def GetEuler(
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> imu_pb2.EulerAnglesResponse:
         """Implements GetEuler by reading Euler angles directly from sensor."""
         try:
             roll, pitch, yaw = self.imu.get_euler()
             return imu_pb2.EulerAnglesResponse(
-                roll=float(roll),
-                pitch=float(pitch),
-                yaw=float(yaw)
+                roll=float(roll), pitch=float(pitch), yaw=float(yaw)
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return imu_pb2.EulerAnglesResponse(
-                error=common_pb2.Error(message=str(e))
-            )
+            return imu_pb2.EulerAnglesResponse(error=common_pb2.Error(message=str(e)))
 
-    async def GetAdvancedValues(self, request: empty_pb2.Empty, context: grpc.ServicerContext) -> imu_pb2.IMUAdvancedValuesResponse:
+    async def GetAdvancedValues(
+        self, request: empty_pb2.Empty, context: grpc.ServicerContext
+    ) -> imu_pb2.IMUAdvancedValuesResponse:
         """Implements GetAdvancedValues by reading extended sensor data."""
         try:
             lin_accel, gravity, temp = self.imu.get_advanced_values()
@@ -254,7 +264,7 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 grav_x=float(gravity[0]),
                 grav_y=float(gravity[1]),
                 grav_z=float(gravity[2]),
-                temp=float(temp)
+                temp=float(temp),
             )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
@@ -263,7 +273,9 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 error=common_pb2.Error(message=str(e))
             )
 
-    async def Zero(self, request: imu_pb2.ZeroIMURequest, context: grpc.ServicerContext) -> common_pb2.ActionResponse:
+    async def Zero(
+        self, request: imu_pb2.ZeroIMURequest, context: grpc.ServicerContext
+    ) -> common_pb2.ActionResponse:
         """Implements Zero - Note: BNO055 handles calibration internally."""
         # The BNO055 handles its own zeroing/calibration, so this is a no-op
         return common_pb2.ActionResponse(success=True)
@@ -271,24 +283,107 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
 
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
+    log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
-    motor_controller = MotorController()
-    imu_manager = BNO055Manager(update_rate=50)
-    imu_manager.start()
     try:
-        actuator_service = ActuatorService(motor_controller)
-        actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(actuator_service, server)
-        
-        imu_service = IMUService(imu_manager)
-        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        actuator_controller = SCSMotorController(
+            device="/dev/ttyAMA5", baudrate=500000, rate=50
+        )
+        actuator_controller.start()
+    except NoActuatorsFoundError as e:
+        sys.exit(1)
+    # imu_manager = BNO055Manager(update_rate=50)
+    # imu_manager.start()
+    stop_event = asyncio.Event()
+
+    def handle_signal():
+        log.info("received shutdown signal")
+        stop_event.set()
+
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGINT, handle_signal)
+    loop.add_signal_handler(signal.SIGTERM, handle_signal)
+
+    try:
+        actuator_service = ActuatorService(actuator_controller)
+        actuator_pb2_grpc.add_ActuatorServiceServicer_to_server(
+            actuator_service, server
+        )
+
+        # imu_service = IMUService(imu_manager)
+        # imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
-        print(f"Server started on {host}:{port}")
-        await server.wait_for_termination()
+        log.info(f"KOS ZBot service started on {host}:{port}")
+        await stop_event.wait()
+        await server.stop(1)
+        log.info("KOS ZBot service stopped")
     finally:
-        motor_controller.controller.stop()
-        imu_manager.stop()
+        actuator_controller.stop()
+        # imu_manager.stop()
+
+
+def singleton_check(pidfile="/tmp/kos.pid"):
+    """Ensure only one kos process runs at a time."""
+    log = get_logger(__name__)
+    pidfile_fd = os.open(pidfile, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        # File is locked by another process
+        with open(pidfile, "r") as f:
+            existing_pid = f.read().strip()
+        if existing_pid and existing_pid.isdigit():
+            try:
+                os.kill(int(existing_pid), 0)
+                # Process is alive
+                answer = input(
+                    f"A kos process is already running (PID: {existing_pid}). Stop it? [y/N] "
+                )
+                if answer.lower() == "y":
+                    os.kill(int(existing_pid), 15)  # SIGTERM
+                    log.info("Sent SIGTERM, waiting for process to exit...")
+                    import time
+
+                    for _ in range(10):
+                        try:
+                            os.kill(int(existing_pid), 0)
+                            time.sleep(0.5)
+                        except OSError:
+                            break
+                    else:
+                        log.info("Process did not exit, exiting.")
+                        sys.exit(1)
+                    # Try to acquire lock again
+                    fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                else:
+                    log.info("Exiting.")
+                    sys.exit(1)
+            except OSError:
+                # Process not running, remove stale pidfile
+                log.info("Stale PID file found, removing.")
+                os.remove(pidfile)
+                fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        else:
+            log.info("PID file exists but is invalid, removing.")
+            os.remove(pidfile)
+            fcntl.lockf(pidfile_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    # Write our PID
+    os.ftruncate(pidfile_fd, 0)
+    os.write(pidfile_fd, str(os.getpid()).encode())
+    # Keep the file descriptor open for the life of the process
+    return pidfile_fd
+
+
+def main():
+    singleton_check()
+    KOSLoggerSetup.setup(
+        log_dir="logs", console_level=get_log_level(), file_level=logging.DEBUG
+    )
+
+    asyncio.run(serve())
+
 
 if __name__ == "__main__":
-    asyncio.run(serve())
+    main()

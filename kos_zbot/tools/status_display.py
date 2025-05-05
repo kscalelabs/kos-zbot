@@ -39,13 +39,34 @@ def make_table(states: list, scale: float = 180.0) -> Table:
     tbl.add_column("Pos °", justify="right")
     tbl.add_column(f"Position (±{scale}°)", no_wrap=True)
     tbl.add_column("Torque", justify="center")
-    tbl.add_column("Faults", justify="left")
+    tbl.add_column("Last Fault", justify="left")
+    tbl.add_column("Fault Count", justify="right")
+    tbl.add_column("Last Fault Time", justify="left")  # NEW COLUMN
 
     for s in states:
         bar = format_bar(s.position, BAR_WIDTH, scale)
         torque = "[green]ON[/]" if s.online else "[red]OFF[/]"
-        faults = ", ".join(s.faults) if s.faults else ""
-        tbl.add_row(str(s.actuator_id), f"{s.position:6.2f}", bar, torque, faults)
+        # Unpack faults: [last_fault_message, total_faults, last_fault_time]
+        if s.faults and len(s.faults) == 3:
+            last_fault = s.faults[0]
+            fault_count = s.faults[1]
+            try:
+                last_fault_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(s.faults[2])))
+            except Exception:
+                last_fault_time = s.faults[2]
+        else:
+            last_fault = ", ".join(s.faults) if s.faults else ""
+            fault_count = str(len(s.faults)) if s.faults else "0"
+            last_fault_time = ""
+        tbl.add_row(
+            str(s.actuator_id),
+            f"{s.position:6.2f}",
+            bar,
+            torque,
+            last_fault,
+            fault_count,
+            last_fault_time,
+        )
 
     return tbl
 
@@ -104,6 +125,7 @@ async def show_status(scale: float = 180.0):
     states = actuator_q.get_nowait()
 
     render_interval = 1 / 20  # UI at 20 Hz
+
 
     with Live(Group(title, make_table(states, scale)), console=console, refresh_per_second=30, screen=True) as live:
         while True:

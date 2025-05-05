@@ -119,6 +119,7 @@ class SCSMotorController:
         self.MAX_ERRORS = 10  # Maximum number of consecutive errors before removing servo
         self.error_reset_period = 5.0  # Reset error counts after 5 seconds of success
         self.last_error_time = {}  # Track when error count was last incremented
+        self.fault_history = {}  # Track fault history
 
         time.sleep(1)
 
@@ -176,6 +177,25 @@ class SCSMotorController:
             # Cleanup error tracking
             self.read_error_counts.pop(actuator_id, None)
             self.last_error_time.pop(actuator_id, None)
+
+    def _record_fault(self, actuator_id: int, message: str):
+        """Record a fault for the given actuator."""
+        now = time.time()
+        if actuator_id not in self.fault_history:
+            self.fault_history[actuator_id] = {
+                "last_fault_message": message,
+                "total_faults": 1,
+                "last_fault_time": now,
+            }
+        else:
+            fh = self.fault_history[actuator_id]
+            fh["last_fault_message"] = message
+            fh["total_faults"] += 1
+            fh["last_fault_time"] = now
+
+    def get_faults(self, actuator_id: int):
+        """Retrieve fault history for a given actuator."""
+        return self.fault_history.get(actuator_id)
 
     def configure_actuator(self, actuator_id: int, config: dict):
         """Configure actuator parameters. Only parameters present in config are written."""
@@ -387,17 +407,7 @@ class SCSMotorController:
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
-            self.log.error(f"read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
-            # Instead of returning, increment error counts for all servos
-            for actuator_id in list(self.actuator_ids):
-                self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
-                self.last_error_time[actuator_id] = current_time
-                self.log.error(f"failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
-                
-                if self.read_error_counts[actuator_id] >= self.MAX_ERRORS:
-                    self.log.error(f"removing actuator {actuator_id} due to repeated read failures")
-                    self._remove_actuator(actuator_id)
-                    self.group_sync_read.removeParam(actuator_id)
+            self.log.error(f"group sync read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
             return
                 
         # If group sync read succeeded, check individual servos
@@ -416,6 +426,7 @@ class SCSMotorController:
                 # Increment error count and update last error time
                 self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
                 self.last_error_time[actuator_id] = current_time
+                self._record_fault(actuator_id, "fail to read")
                 self.log.error(f"failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
                 
                 # Check if we should remove the actuator

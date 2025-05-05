@@ -6,7 +6,7 @@ import sys
 import platform
 
 DEFAULT_BAUDRATE = 1000000
-LATENCY_TIMER = 5
+LATENCY_TIMER = 10
 
 class PortHandler(object):
     def __init__(self, port_name):
@@ -103,7 +103,6 @@ class PortHandler(object):
         self.is_open = True
 
         self.ser.reset_input_buffer()
-
         self.tx_time_per_byte = (1000.0 / self.baudrate) * 10.0
 
         return True

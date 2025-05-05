@@ -47,9 +47,13 @@ def service():
     "--scale", type=float, default=50.0, show_default=True, metavar="DEG",
     help="Max |position| in degrees for bar scaling."
 )
-def status(scale):
+@click.option(
+    "--ip", type=str, default="127.0.0.1", show_default=True, metavar="IP",
+    help="KOS service IP address."
+)
+def status(scale, ip):
     """Show live system status"""
-    asyncio.run(show_status(scale=scale))
+    asyncio.run(show_status(scale=scale, ip=ip))
 
 
 @cli.group(
@@ -118,19 +122,19 @@ def sync_wave():
     TEST_CONFIG = {
         "kos_ip": "127.0.0.1",
         "amplitude": 10.0,
-        "frequency": 0.5,
+        "frequency": 1.0,
         "duration": 3600.0,
         "sample_rate": 50.0,
         "start_pos": 0.0,
         "sync_all": False,
         "wave_patterns": {
-            "pair_1": {"actuators": [11,12,13,14], "amplitude": 10.0, "frequency": 0.25, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "pair_2": {"actuators": [21,22,23,24], "amplitude": 10.0, "frequency": 0.25, "phase_offset": 90.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 10.0, "frequency": 0.25, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 10.0, "frequency": 0.25, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_1": {"actuators": [11,12,13,14], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_2": {"actuators": [21,22,23,24], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 90.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
         },
         "kp": 20.0,
-        "kd": 10.0,
+        "kd": 5.0,
         "ki": 0.0,
         "max_torque": 100.0,
         "acceleration": 1000.0,

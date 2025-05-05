@@ -734,8 +734,8 @@ class SCSMotorController:
             for aid in sorted(self.actuator_ids):
                 self.log.info(f"Changing baudrate for actuator {aid} to {raw_baud}")
                 # unlock EEPROM
-                #self._unlockEEPROM(aid)
-                #time.sleep(0.01)
+                self._unlockEEPROM(aid)
+                time.sleep(0.01)
 
                 # write index into the baud‐rate register
                 if not self.writeReg(aid, SMS_STS_BAUD_RATE, idx):
@@ -744,7 +744,7 @@ class SCSMotorController:
 
                 time.sleep(0.01)
                 # lock EEPROM again
-                #self._lockEEPROM(aid)
-                #time.sleep(0.01)
+                self._lockEEPROM(aid)
+                time.sleep(0.01)
 
         return success

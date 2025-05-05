@@ -297,7 +297,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     try:
         actuator_controller = SCSMotorController(
-            device="/dev/ttyAMA5", baudrate=500000, rate=50
+            device="/dev/ttyAMA5", baudrate=250000, rate=50
         )
         actuator_controller.start()
     except NoActuatorsFoundError as e:

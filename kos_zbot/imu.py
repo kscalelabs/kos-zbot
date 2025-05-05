@@ -27,27 +27,40 @@ def _sensor_proc(q: Queue, rate_hz: int):
         now = time.monotonic()
         if now > next_deadline:
             overrun_ms = (now - next_deadline) * 1000.0
-            #if overrun_ms > 5:
-            #    log.warning(f"Timing overrun: {overrun_ms:.2f}ms (target: {period*1000:.2f}ms)")
+            #if overrun_ms > 0.5:
+            #    log.warning(
+            #        f"Timing overrun: {overrun_ms:.2f}ms (target: {period*1000:.2f}ms)"
+            #    )
             next_deadline = now
         next_deadline += period
 
+        # Read sensor data and push to queue
         try:
             data = (
-                sensor.acceleration,    # (ax, ay, az)
-                sensor.gyro,            # (gx, gy, gz)
-                sensor.magnetic,        # (mx, my, mz)
-                sensor.quaternion,      # (w, x, y, z)
+                sensor.acceleration,
+                sensor.gyro,
+                sensor.magnetic,
+                sensor.quaternion,
             )
-            # keep only latest sample
-            if q.full():
-                try:
-                    q.get_nowait()
-                except queue.Empty:
-                    pass
-            q.put_nowait(data)
-        except Exception as e:
-            log.error(f"Sensor proc error: {e}")
+        except Exception:
+            # If sensor failure, log full traceback and skip
+            log.exception("Failed to read sensor values")
+            data = None
+
+        if data:
+            try:
+                if q.full():
+                    # drop oldest sample
+                    try:
+                        q.get_nowait()
+                    except queue.Empty:
+                        pass
+                q.put_nowait(data)
+            except queue.Full:
+                # race condition: queue filled since check, safe to ignore
+                pass
+            except Exception:
+                log.exception("Unexpected queue error in sensor process")
 
         sleep_time = next_deadline - time.monotonic()
         if sleep_time > 0:
@@ -116,7 +129,6 @@ class BNO055Manager:
         while not self._stop_reader.is_set():
             try:
                 accel, gyro, mag, quat = self._queue.get(timeout=0.1)
-                # Only update when each element is valid (not None)
                 with self._lock:
                     if accel is not None and all(v is not None for v in accel):
                         self._buffer['accel'] = accel
@@ -128,6 +140,8 @@ class BNO055Manager:
                         self._buffer['quat'] = quat
             except queue.Empty:
                 continue
+            except Exception:
+                self.log.exception("Error in reader thread")
 
     def get_values(self):
         """Get latest accel, gyro, mag."""
@@ -146,7 +160,7 @@ class BNO055Manager:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    imu = BNO055Manager(update_rate=50)
+    imu = BNO055Manager(update_rate=100)
     imu.start()
     try:
         while True:
@@ -157,6 +171,6 @@ if __name__ == "__main__":
             print(f"Gyroscope    (rad/s):   {gyro}")
             print(f"Magnetometer (uT):      {mag}")
             print(f"Quaternion (w,x,y,z):   {quat}")
-            time.sleep(0.02)
+            time.sleep(0.01)
     except KeyboardInterrupt:
         imu.stop()

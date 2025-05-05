@@ -17,7 +17,7 @@ class MainGroup(click.Group):
 
 class ActuatorGroup(click.Group):
     def list_commands(self, ctx):
-        return ['move', 'scan', 'torque', 'zero', 'dump']
+        return ['move', 'torque', 'zero', 'dump']
 
 
 @click.group(
@@ -25,7 +25,10 @@ class ActuatorGroup(click.Group):
     invoke_without_command=True,
     no_args_is_help=True,
     context_settings={'help_option_names': ['-h', '--help']},
-    help="KOS ZBot Command Line Interface."
+    help=(
+        "KOS ZBot Command Line Interface.\n\n"
+        "IMPORTANT: You must run 'kos service' before using any other commands."
+    )
 )
 def cli():
     """Main entry point for the KOS ZBot CLI."""
@@ -72,12 +75,6 @@ cli.add_command(actuator)
 def move(ids, positions, kp, kd, acceleration, wait):
     from kos_zbot.tools.actuator_move import actuator_move
     asyncio.run(actuator_move(ids, positions, kp, kd, acceleration, wait))
-
-
-@actuator.command()
-def scan():
-    """Scan for available actuators."""
-    click.echo("Scanning for actuators...")
 
 
 @actuator.command()

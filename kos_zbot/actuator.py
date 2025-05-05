@@ -216,7 +216,7 @@ class SCSMotorController:
                     if not (0 <= kp <= 255):
                         self.log.error(f"kp out of range: {kp}")
                         return False
-                    success &= self.writeReg(actuator_id, ADDR_KP, kp)
+                    success &= self.writeReg_Verify(actuator_id, ADDR_KP, kp)
                     changes.append(f"kp={kp}")
 
                 # KD
@@ -225,7 +225,7 @@ class SCSMotorController:
                     if not (0 <= kd <= 255):
                         self.log.error(f"kd out of range: {kd}")
                         return False
-                    success &= self.writeReg(actuator_id, ADDR_KD, kd)
+                    success &= self.writeReg_Verify(actuator_id, ADDR_KD, kd)
                     changes.append(f"kd={kd}")
 
                 # Acceleration
@@ -238,13 +238,13 @@ class SCSMotorController:
                     if not (0 <= acceleration <= 255):
                         self.log.error(f"acceleration out of range: {acceleration}")
                         return False
-                    success &= self.writeReg(actuator_id, SMS_STS_ACC, acceleration)
+                    success &= self.writeReg_Verify(actuator_id, SMS_STS_ACC, acceleration)
                     changes.append(f"acc={acceleration}")
 
                 # Torque enable
                 if 'torque_enabled' in config:
                     torque_enabled = bool(config['torque_enabled'])
-                    success &= self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
+                    success &= self.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
                     if torque_enabled:
                         self.torque_enabled_ids.add(actuator_id)
                     else:
@@ -493,7 +493,7 @@ class SCSMotorController:
         self.log.debug("eeprom locked")
 
 
-    def writeReg(self, actuator_id, regAddr, value):
+    def writeReg_Verify(self, actuator_id, regAddr, value):
         """Write to a register with retries. Returns True if successful, False otherwise."""
         reg = None
         for r in servoRegs:
@@ -522,6 +522,30 @@ class SCSMotorController:
         
         self.log.error(f"failed to write register {regAddr} after all retries")
         return False  # Return False after all retries fail
+
+    def writeReg(self, actuator_id, regAddr, value):
+        """Write to a register with retries. Returns True if successful, False otherwise."""
+        reg = None
+        for r in servoRegs:
+            if r["addr"] == regAddr:
+                reg = r
+                break
+
+        if reg == None:
+            self.log.error("unknown register: " + str(regAddr))
+            return False 
+        
+        if reg["size"] == 2:
+            value = [self.packet_handler.scs_lobyte(value), self.packet_handler.scs_hibyte(value)]
+        else:
+            value = [value]
+        
+        comm_result  = self.packet_handler.writeTxOnly(actuator_id, regAddr, reg["size"], value)
+        if comm_result == 0:
+            return True
+
+        self.log.error(f"failed to write register {regAddr} after all retries")
+        return False
 
     def _get_model_name(self, model_number):
         """Translate model number to human-readable name"""
@@ -644,19 +668,19 @@ class SCSMotorController:
         time.sleep(0.01)
         
         # Set min angle to 0
-        self.writeReg(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
+        self.writeReg_Verify(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
         time.sleep(0.01)
         
         # Set max angle to 4095
-        self.writeReg(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
+        self.writeReg_Verify(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
         time.sleep(0.01)
         
         # Set position control mode
-        self.writeReg(actuator_id, SMS_STS_MODE, 0)
+        self.writeReg_Verify(actuator_id, SMS_STS_MODE, 0)
         time.sleep(0.01)
         
         # Enable torque with special flag
-        self.writeReg(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
+        self.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
         time.sleep(0.01)
         
         self._lockEEPROM(actuator_id)
@@ -681,3 +705,46 @@ class SCSMotorController:
         else:
             self.log.info("No servos found.")
         return found_servos
+
+    def change_baudrate(self, raw_baud: int) -> bool:
+        """
+        Set bus speed by passing the actual baud rate.
+        
+        Args:
+            raw_baud: one of 1_000_000, 500_000, or 250_000
+            verify: if True, read back each servo’s baud‐rate register to confirm
+        Returns:
+            True if all writes (and host port update) succeeded
+        """
+        # map actual baud → register index
+        baud_to_index = {
+            1_000_000: 0,   # index 0 => 1 Mbps
+            500_000:   1,   # index 1 => 500 kbps
+            250_000:   2,   # index 2 => 250 kbps
+        }
+        if raw_baud not in baud_to_index:
+            self.log.error(f"Unsupported baud rate: {raw_baud}")
+            return False
+
+        idx = baud_to_index[raw_baud]
+        self.log.info(f"idx: {idx}")
+        success = True
+
+        with self._control_lock:
+            for aid in sorted(self.actuator_ids):
+                self.log.info(f"Changing baudrate for actuator {aid} to {raw_baud}")
+                # unlock EEPROM
+                #self._unlockEEPROM(aid)
+                #time.sleep(0.01)
+
+                # write index into the baud‐rate register
+                if not self.writeReg(aid, SMS_STS_BAUD_RATE, idx):
+                    #self.log.error(f"[id:{aid:03d}] failed to write baud index {idx}")
+                    success = False
+
+                time.sleep(0.01)
+                # lock EEPROM again
+                #self._lockEEPROM(aid)
+                #time.sleep(0.01)
+
+        return success

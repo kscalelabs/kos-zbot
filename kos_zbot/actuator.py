@@ -13,10 +13,6 @@ from tqdm import tqdm
 class NoActuatorsFoundError(Exception):
     pass
 
-MODEL_MAP = {
-    777: "STS3215",   # 0x0309
-    2825: "STS3250"   # 0x0B09
-}
 
 ADDR_KP = 21  # Speed loop P gain
 ADDR_KD = 22  # Speed loop D gain
@@ -562,12 +558,6 @@ class SCSMotorController:
                     except Exception as e:
                         self.log.error(f"error reading {reg['name']} (addr: {reg['addr']}): {str(e)}")
                         continue
-                        
-                # Add derived values
-                #if "Present Position" in params and show_results:
-                #    degrees = (params["Present Position"] * 360 / 4095) - 180
-                #    print(f"Position in degrees: {degrees:.2f}°")
-
                 return params
                 
         except Exception as e:
@@ -674,20 +664,18 @@ class SCSMotorController:
         self._positions_a[actuator_id] = 0
         self._positions_b[actuator_id] = 0
 
-
     def scan_servos(self, id_range: range) -> list:
-        """Scan for servos in the given ID range and return their basic info"""
         found_servos = []
-        
+        found_strings = []
         with tqdm(id_range, desc="Scanning servos", unit="ID") as pbar:
             for servo_id in pbar:
                 model_number, result, error = self.packet_handler.ping(servo_id)
-                if result == 0:  # COMM_SUCCESS
-                    found_servos.append({
-                        "id": servo_id,
-                        "model": MODEL_MAP.get(model_number, f"Unknown Model {model_number}")
-                    })
-                    
-                    pbar.set_description(f"Found servo ID {servo_id}")
-        
+                if result == 0:
+                    model_name = self._get_model_name(model_number)
+                    found_servos.append({"id": servo_id, "model": model_name})
+                    found_strings.append(f"[{servo_id} {model_name}]")
+        if found_strings:
+           self.log.info("Found servos: " + ", ".join(found_strings))
+        else:
+            self.log.info("No servos found.")
         return found_servos

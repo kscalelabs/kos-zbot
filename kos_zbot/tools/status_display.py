@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.live import Live
 from rich.rule import Rule
 from pykos import KOS
+from kos_zbot.tests.kos_connection import kos_ready_async
 
 BAR_WIDTH = 30
 
@@ -80,6 +81,11 @@ class PollerThread(threading.Thread):
             # no explicit sleep: poll as fast as the RPC allows
 
 async def show_status(scale: float = 180.0):
+    kos_ip = "127.0.0.1"
+    if not await kos_ready_async(kos_ip):
+        print(f"KOS service not available at {kos_ip}:50051")
+        return
+
     console = Console()
     console.clear()
     title = Rule("[bold white]K-OS Zbot v0.1 Status[/]")

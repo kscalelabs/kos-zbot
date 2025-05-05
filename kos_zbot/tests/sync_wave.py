@@ -4,7 +4,7 @@ import numpy as np
 import signal
 from pykos import KOS
 import logging
-
+from kos_zbot.tests.kos_connection import kos_ready_async
 
 def get_logger(name):
     logger = logging.getLogger(name)
@@ -58,7 +58,11 @@ async def run_sine_test(
     """
 
     log = get_logger(__name__)
-    kos = KOS(kos_ip)
+    if await kos_ready_async(kos_ip):
+        kos = KOS(kos_ip)
+    else:
+        log.error("KOS service not available at %s:50051", kos_ip)
+        return
 
     interrupted = False
 

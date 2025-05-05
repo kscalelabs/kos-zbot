@@ -1,9 +1,16 @@
 import click
 import asyncio
 from pykos import KOS
+from kos_zbot.tests.kos_connection import kos_ready_async
 
 async def actuator_torque(action, ids):
-    kos = KOS("127.0.0.1")
+    kos_ip = "127.0.0.1"
+    if await kos_ready_async(kos_ip):
+        kos = KOS(kos_ip)
+    else:
+        print(f"KOS service not available at {kos_ip}:50051")
+        return
+
     if ids.lower() == 'all':
         resp = await kos.actuator.get_actuators_state()
         actuator_ids = [s.actuator_id for s in resp.states]

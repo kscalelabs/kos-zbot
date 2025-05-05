@@ -119,7 +119,7 @@ def sync_wave():
     from kos_zbot.tests.sync_wave import run_sine_test
     ACTUATOR_IDS = [11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46]
     TEST_CONFIG = {
-        "kos_ip": "192.168.42.1",
+        "kos_ip": "127.0.0.1",
         "amplitude": 10.0,
         "frequency": 0.5,
         "duration": 3600.0,

@@ -4,6 +4,7 @@ import random
 from pykos import KOS
 import logging
 import signal
+from kos_zbot.tests.kos_connection import kos_ready_async
 
 def get_logger(name):
     logger = logging.getLogger(name)
@@ -69,7 +70,11 @@ async def run_step_test(
     if seed is not None:
         random.seed(seed)
 
-    kos = KOS(kos_ip)
+    if await kos_ready_async(kos_ip):
+        kos = KOS(kos_ip)
+    else:
+        log.error("KOS service not available at %s:50051", kos_ip)
+        return
     
     # Configure each actuator
     log.info("configure actuators")

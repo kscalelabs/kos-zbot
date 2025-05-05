@@ -3,9 +3,14 @@ from pykos import KOS
 import asyncio
 import time
 from tabulate import tabulate
-
+from kos_zbot.tests.kos_connection import kos_ready_async
 async def actuator_move(ids, positions, kp=None, kd=None, acceleration=None, wait=3.0):
-    kos = KOS("127.0.0.1")
+    kos_ip = "127.0.0.1"
+    if await kos_ready_async(kos_ip):
+        kos = KOS(kos_ip)
+    else:
+        print(f"KOS service not available at {kos_ip}:50051")
+        return
     # Get actuator IDs
     if ids.lower() == 'all':
         resp = await kos.actuator.get_actuators_state()

@@ -164,13 +164,23 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                     actuator_id
                 )
                 position_deg = self.actuator_controller.get_position(actuator_id)
+                fault_info = self.actuator_controller.get_faults(actuator_id)
+                if fault_info is None:
+                    faults = []
+                else:
+                    faults = [
+                        str(fault_info['last_fault_message']),
+                        str(fault_info['total_faults']),
+                        str(int(fault_info['last_fault_time']))  # as integer timestamp
+                    ]
+
                 if position_deg is None:
                     state = actuator_pb2.ActuatorStateResponse(
                         actuator_id=actuator_id,
                         position=0.0,
                         velocity=0.0,
                         online=False,
-                        faults=["position read failed"],
+                        faults=faults,
                     )
                 else:
                     state = actuator_pb2.ActuatorStateResponse(
@@ -178,7 +188,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         position=position_deg,
                         velocity=0.0,
                         online=torque_enabled,
-                        faults=[],
+                        faults=faults,
                     )
 
                 states.append(state)
@@ -292,8 +302,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_controller.start()
     except NoActuatorsFoundError as e:
         sys.exit(1)
-    # imu_manager = BNO055Manager(update_rate=50)
-    # imu_manager.start()
+    imu_manager = BNO055Manager(update_rate=100)
+    imu_manager.start()
     stop_event = asyncio.Event()
 
     def handle_signal():
@@ -310,8 +320,8 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
             actuator_service, server
         )
 
-        # imu_service = IMUService(imu_manager)
-        # imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
+        imu_service = IMUService(imu_manager)
+        imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
@@ -321,7 +331,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         log.info("KOS ZBot service stopped")
     finally:
         actuator_controller.stop()
-        # imu_manager.stop()
+        imu_manager.stop()
 
 
 def singleton_check(pidfile="/tmp/kos.pid"):

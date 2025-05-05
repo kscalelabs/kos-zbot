@@ -1,6 +1,6 @@
 # kos-zbot
 
-A command-line interface for controlling and testing KOS ZBot actuators and IMU.
+K-OS Operating System
 
 ---
 

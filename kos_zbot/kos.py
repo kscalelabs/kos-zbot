@@ -302,7 +302,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_controller.start()
     except NoActuatorsFoundError as e:
         sys.exit(1)
-    imu_manager = BNO055Manager(update_rate=50)
+    imu_manager = BNO055Manager(update_rate=100)
     imu_manager.start()
     stop_event = asyncio.Event()
 

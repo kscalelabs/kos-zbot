@@ -142,8 +142,8 @@ async def run_imu_test(
                 t0 = time.time()
                 quat = await kos.imu.get_quaternion()
                 timing_stats['quat_times'].append(time.time() - t0)
-                if i % 10 == 0:  # Print less frequently
-                    print(f" | Quat: {quat.w:.2f}, {quat.x:.2f}, {quat.y:.2f}, {quat.z:.2f}", end='')
+                #if i % 10 == 0:  # Print less frequently
+                print(f" | Quat: {quat.w:.2f}, {quat.x:.2f}, {quat.y:.2f}, {quat.z:.2f}", end='')
             
             if read_euler:
                 t0 = time.time()
@@ -180,8 +180,11 @@ async def run_imu_test(
     if print_stats:
         print("\n\nTiming Statistics:")
         loop_times = np.array(timing_stats['loop_times']) * 1000  # Convert to ms
-        print(f"Loop timing (ms): mean={loop_times.mean():.1f}, min={loop_times.min():.1f}, "
-              f"max={loop_times.max():.1f}, std={loop_times.std():.1f}")
+        if loop_times.size > 0:
+            print(f"Loop timing (ms): mean={loop_times.mean():.1f}, min={loop_times.min():.1f}, "
+                f"max={loop_times.max():.1f}, std={loop_times.std():.1f}")
+        else:
+            print("Loop timing (ms): No data collected.")
         
         if read_basic:
             times = np.array(timing_stats['basic_times']) * 1000
@@ -232,7 +235,7 @@ if __name__ == "__main__":
         "sample_time": args.time,
         "sample_rate": args.rate,
         "read_basic": True,      # Always true for logging accel/gyro
-        "read_quaternion": False,  # Disabled for basic logging
+        "read_quaternion": True,  # Disabled for basic logging
         "read_euler": False,      # Disabled for basic logging
         "read_advanced": False,   # Disabled for basic logging
         "print_stats": True,

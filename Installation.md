@@ -7,6 +7,7 @@
 3. [KOS Python Package Build](#kos-python-package-build)
 4. [Raspberry Pi System Configuration](#raspberry-pi-system-configuration)
     - [Realtime Python Capability](#realtime-python-capability)
+    - [Add User Permissions](#add-user-permissions)
     - [/boot/firmware/config.txt](#bootfirmwareconfigtxt)
     - [Ethernet Gadget Mode](#ethernet-gadget-mode)
     - [Static IP for USB Gadget](#static-ip-for-usb-gadget)
@@ -27,13 +28,14 @@
 - Raspberry Pi OS 64-bit
 - Python 3.12+ (recommended: use Miniforge or Miniconda)
 - Required hardware: Feetech Servos, BNO055 IMU, I2S audio, etc.
+
 ---
 
 ## Python Environment Setup
 
 ```bash
 # Install system dependencies
-sudo apt install portaudio19-dev
+sudo apt install portaudio19-dev python3-dev
 
 # (Optional) Create and activate a conda environment
 conda create -n kos python=3.12
@@ -41,6 +43,9 @@ conda activate kos
 
 # Install Python dependencies
 pip install -r requirements.txt
+
+# Install pyaudio (if not included in requirements.txt)
+pip install pyaudio
 ```
 
 ---
@@ -63,7 +68,23 @@ Allow Python to set realtime priorities (for low-latency control):
 
 ```bash
 sudo setcap cap_sys_nice=eip $(readlink -f $(which python))
+# Or, if using a conda environment, specify the python path:
+sudo setcap cap_sys_nice=eip $(readlink -f /home/<youruser>/miniforge3/envs/kos/bin/python)
 ```
+
+---
+
+### Add User Permissions
+
+Add your user to the necessary groups for hardware access:
+
+```bash
+sudo usermod -aG dialout $USER
+sudo usermod -aG i2c $USER
+sudo usermod -aG audio $USER
+sudo usermod -aG video $USER
+```
+Log out and back in for group changes to take effect.
 
 ---
 
@@ -75,6 +96,7 @@ Edit `/boot/firmware/config.txt` and add/verify the following lines:
 # KOS PI4 Configuration
 
 dtparam=i2c_arm=on
+dtparam=i2c_arm_baudrate=400000
 dtoverlay=i2c6,pins_22_23
 dtparam=audio=on
 camera_auto_detect=1

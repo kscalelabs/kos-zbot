@@ -107,9 +107,9 @@ def init_grid(states, imu_vals, imu_quat, scale: float) -> Table:
     return grid
 
 
-def actuator_worker(out_q: mp.Queue, freq: float = 30.0):
+def actuator_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
     async def poll():
-        client = KOS("127.0.0.1")
+        client = KOS(ip)
         period = 1.0 / freq
         while True:
             try:
@@ -132,9 +132,9 @@ def actuator_worker(out_q: mp.Queue, freq: float = 30.0):
     loop.run_until_complete(poll())
 
 
-def imu_worker(out_q: mp.Queue, freq: float = 30.0):
+def imu_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
     async def poll():
-        client = KOS("127.0.0.1")
+        client = KOS(ip)
         period = 1.0 / freq
         while True:
             try:
@@ -157,16 +157,21 @@ def imu_worker(out_q: mp.Queue, freq: float = 30.0):
 
 async def show_status(scale: float = 180.0,
                       act_freq: float = 20.0,
-                      imu_freq: float = 20.0):
-    if not await kos_ready_async("127.0.0.1"): return
+                      imu_freq: float = 20.0,
+                      ip: str = "127.0.0.1"):
+    if not await kos_ready_async(ip): 
+        print(f"KOS service not available at {ip}:50051")
+        print("Please start the KOS service with 'kos service'")
+        print("or specify a different IP address with '--ip <ip>'")
+        return
     console = Console()
     console.clear()
     title = Rule("[bold white]K-OS Zbot v0.1 Status[/]")
 
     act_q = mp.Queue(maxsize=1)
     imu_q = mp.Queue(maxsize=1)
-    act_p = mp.Process(target=actuator_worker, args=(act_q, act_freq), daemon=True)
-    imu_p = mp.Process(target=imu_worker, args=(imu_q, imu_freq), daemon=True)
+    act_p = mp.Process(target=actuator_worker, args=(act_q, act_freq, ip), daemon=True)
+    imu_p = mp.Process(target=imu_worker, args=(imu_q, imu_freq, ip), daemon=True)
     act_p.start(); imu_p.start()
 
     # wait for first data
@@ -209,5 +214,6 @@ if __name__ == "__main__":
     parser.add_argument("--scale",    type=float, default=180.0)
     parser.add_argument("--act-freq", type=float, default=30.0)
     parser.add_argument("--imu-freq", type=float, default=30.0)
+    parser.add_argument("--ip",       type=str,   default="127.0.0.1")
     args = parser.parse_args()
-    asyncio.run(show_status(args.scale, args.act_freq, args.imu_freq))
+    asyncio.run(show_status(args.scale, args.act_freq, args.imu_freq, args.ip))

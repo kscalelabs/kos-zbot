@@ -21,15 +21,20 @@ def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
     """
     center = width // 2
     clamped = max(min(pos, scale), -scale)
-    scaled = int((clamped / scale) * center)
+    scaled = int(round((clamped / scale) * center))
     bar = [" "] * width
-    bar[center] = "|"
+    if 0 <= center < width:
+        bar[center] = "|"
     if scaled > 0:
         for i in range(1, scaled + 1):
-            bar[center + i] = "="
+            idx = center + i
+            if 0 <= idx < width:
+                bar[idx] = "="
     elif scaled < 0:
         for i in range(1, -scaled + 1):
-            bar[center - i] = "="
+            idx = center - i
+            if 0 <= idx < width:
+                bar[idx] = "="
     return f"[cyan]{''.join(bar)}[/]"
 
 
@@ -68,7 +73,7 @@ def make_table(states: list, scale: float = 180.0) -> Table:
     return tbl
 
 
-def make_imu_table(values, quat) -> Table:
+def make_imu_table(values, quat, calib_state=None) -> Table:
     tbl = Table(title="IMU Status", show_header=True, header_style="bold blue")
     tbl.add_column("Type", justify="left")
     tbl.add_column("X", justify="right")
@@ -96,13 +101,24 @@ def make_imu_table(values, quat) -> Table:
         )
     return tbl
 
+def make_calib_table(calib_state) -> Table:
+    tbl = Table(title="IMU Calibration", show_header=True, header_style="bold green")
+    tbl.add_column("Component", justify="left")
+    tbl.add_column("Value", justify="right")
+    if calib_state:
+        for k, v in calib_state.items():
+            tbl.add_row(str(k), str(v))
+    return tbl
 
-def init_grid(states, imu_vals, imu_quat, scale: float) -> Table:
-    """Initialize a grid with actuator and IMU tables"""
+def init_grid(states, imu_vals, imu_quat, imu_calib, scale: float) -> Table:
     grid = Table.grid()
+    imu_group = Group(
+        make_imu_table(SimpleNamespace(**imu_vals), SimpleNamespace(**imu_quat)),
+        make_calib_table(imu_calib)
+    )
     grid.add_row(
         make_table([SimpleNamespace(**d) for d in states], scale),
-        make_imu_table(SimpleNamespace(**imu_vals), SimpleNamespace(**imu_quat))
+        imu_group
     )
     return grid
 
@@ -140,12 +156,14 @@ def imu_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
             try:
                 v = await client.imu.get_imu_values()
                 q = await client.imu.get_quaternion()
+                calib = await client.imu.get_calibration_state()
                 serial_vals = {"accel_x": v.accel_x, "accel_y": v.accel_y, "accel_z": v.accel_z,
                                "gyro_x":  v.gyro_x,  "gyro_y":  v.gyro_y,  "gyro_z":  v.gyro_z,
                                "mag_x":   v.mag_x,   "mag_y":   v.mag_y,   "mag_z":   v.mag_z}
                 serial_quat = {"w": q.w, "x": q.x, "y": q.y, "z": q.z}
+                serial_calib = dict(calib.state) if hasattr(calib, "state") else {}
                 if out_q.full(): out_q.get_nowait()
-                out_q.put((serial_vals, serial_quat))
+                out_q.put((serial_vals, serial_quat, serial_calib))
             except Exception:
                 await asyncio.sleep(period)
             else:
@@ -177,13 +195,13 @@ async def show_status(scale: float = 180.0,
     # wait for first data
     while act_q.empty() or imu_q.empty(): await asyncio.sleep(0.01)
     states = act_q.get()
-    imu_vals, imu_quat = imu_q.get()
+    imu_vals, imu_quat, imu_calib = imu_q.get()
 
     render_rate = 30
     render_interval = 1.0 / render_rate
 
     # build initial grid once
-    initial_grid = init_grid(states, imu_vals, imu_quat, scale)
+    initial_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale)
     with Live(Group(title, initial_grid), console=console,
               refresh_per_second=render_rate, screen=True) as live:
 
@@ -197,13 +215,13 @@ async def show_status(scale: float = 180.0,
                 pass
 
             try:
-                imu_vals, imu_quat = imu_q.get_nowait();
+                imu_vals, imu_quat, imu_calib = imu_q.get_nowait();
                 updated = True
             except queue.Empty: 
                 pass
 
             if updated:
-                new_grid = init_grid(states, imu_vals, imu_quat, scale)
+                new_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale)
                 live.update(Group(title, new_grid))
                 last_states = states
 

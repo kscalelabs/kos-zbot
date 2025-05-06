@@ -101,6 +101,10 @@ class SCSMotorController:
             
         self.group_sync_read = GroupSyncRead(self.packet_handler, SMS_STS_PRESENT_POSITION_L, 2)
         self.group_sync_write = GroupSyncWrite(self.packet_handler, SMS_STS_GOAL_POSITION_L, 2)
+
+        # Bus Error Mitigation
+        self.skip_counts = {}  # actuator_id: remaining skip cycles
+        self.skip_on_error_cycles = 1  # how many cycles to skip after error   
         
         # State variables
         self.running = False
@@ -244,8 +248,15 @@ class SCSMotorController:
                 # Torque enable
                 if 'torque_enabled' in config:
                     torque_enabled = bool(config['torque_enabled'])
+                    was_enabled = actuator_id in self.torque_enabled_ids
                     success &= self.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
                     if torque_enabled:
+                        if not was_enabled:
+                            # Read current position and set as target to prevent jump
+                            with self._positions_lock:
+                                positions = self._active_positions
+                                current_counts = positions.get(actuator_id)
+                            self.last_commanded_positions[actuator_id] = current_counts
                         self.torque_enabled_ids.add(actuator_id)
                     else:
                         self.torque_enabled_ids.discard(actuator_id)
@@ -320,6 +331,8 @@ class SCSMotorController:
                     with self._control_lock:
                         if self.actuator_ids:
                             self._read_positions()
+                            # Add small delay between read and write
+                            time.sleep(0.002)  # 1ms delay
                             self._write_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
@@ -403,6 +416,13 @@ class SCSMotorController:
         """Read current positions from all servos"""
         current_time = time.monotonic()
         new_positions = {}
+
+        # Rebuild group sync read param list, skipping actuators with skip_counts > 0 ---
+        self.group_sync_read.clearParam()
+        for actuator_id in self.actuator_ids:
+            if self.skip_counts.get(actuator_id, 0) == 0:
+                self.group_sync_read.addParam(actuator_id)
+                
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
@@ -413,17 +433,28 @@ class SCSMotorController:
                 
         # If group sync read succeeded, check individual servos
         for actuator_id in list(self.actuator_ids):  # Create copy to allow modification
+            if self.skip_counts.get(actuator_id, 0) > 0:
+                self.skip_counts[actuator_id] -= 1
+                continue
+
             data_result, error = self.group_sync_read.isAvailable(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
-            
-            if data_result and error == 0:
-                position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
-                new_positions[actuator_id] = position
+            if data_result:
+                if error == 0:
+                    position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+                    new_positions[actuator_id] = position
+                    self.skip_counts[actuator_id] = 0  # Reset skip count on successful read
+                else:
+                    # Data received, but servo reported an error
+                    self._record_fault(actuator_id, f"servo error code: {error}")
+                    self.log.error(f"Servo {actuator_id} responded with error code: {error:#04x}")
             else:
-                # Increment error count and update last error time
+                # No data received for this actuator
                 self.read_error_counts[actuator_id] = self.read_error_counts.get(actuator_id, 0) + 1
                 self.last_error_time[actuator_id] = current_time
-                self._record_fault(actuator_id, "read error")
-                self.log.error(f"failed to read from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                self._record_fault(actuator_id, "no data received")
+                self.log.error(f"No data received from actuator {actuator_id} (error count: {self.read_error_counts[actuator_id]})")
+                self.skip_counts[actuator_id] = self.skip_on_error_cycles
+                self.log.error(f"Skipping actuator {actuator_id} for {self.skip_on_error_cycles} cycles")
                 
 
             # Write to the inactive buffer

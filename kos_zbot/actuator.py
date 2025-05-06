@@ -244,8 +244,15 @@ class SCSMotorController:
                 # Torque enable
                 if 'torque_enabled' in config:
                     torque_enabled = bool(config['torque_enabled'])
+                    was_enabled = actuator_id in self.torque_enabled_ids
                     success &= self.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0)
                     if torque_enabled:
+                        if not was_enabled:
+                            # Read current position and set as target to prevent jump
+                            with self._positions_lock:
+                                positions = self._active_positions
+                                current_counts = positions.get(actuator_id)
+                            self.last_commanded_positions[actuator_id] = current_counts
                         self.torque_enabled_ids.add(actuator_id)
                     else:
                         self.torque_enabled_ids.discard(actuator_id)
@@ -320,6 +327,8 @@ class SCSMotorController:
                     with self._control_lock:
                         if self.actuator_ids:
                             self._read_positions()
+                            # Add small delay between read and write
+                            time.sleep(0.002)  # 1ms delay
                             self._write_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")

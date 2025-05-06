@@ -156,14 +156,14 @@ def sync_step():
         "step_count": 100000,
         "start_pos": 0.0,
         "kp": 20.0,
-        "kd": 10.0,
+        "kd": 5.0,
         "ki": 0.0,
         "max_torque": 100.0,
         "acceleration": 1000.0,
         "torque_enabled": True,
         "step_min": 1.0,
         "step_max": 10.0,
-        "max_total": 30.0,
+        "max_total": 15.0,
         "seed": 42
     }
     asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))

@@ -283,6 +283,26 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 error=common_pb2.Error(message=str(e))
             )
 
+    async def GetCalibrationState(
+        self, request: imu_pb2.GetCalibrationStateRequest, context: grpc.ServicerContext
+    ) -> imu_pb2.GetCalibrationStateResponse:
+        """Implements GetCalibrationState by reading calibration status from the IMU."""
+        try:
+            calib = self.imu.get_calibration_status()  # (sys, gyro, accel, mag)
+            calib_map = {
+                "sys": int(calib[0]),
+                "gyro": int(calib[1]),
+                "accel": int(calib[2]),
+                "mag": int(calib[3]),
+            }
+            return imu_pb2.GetCalibrationStateResponse(state=calib_map)
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return imu_pb2.GetCalibrationStateResponse(
+                error=common_pb2.Error(message=str(e))
+            )
+
     async def Zero(
         self, request: imu_pb2.ZeroIMURequest, context: grpc.ServicerContext
     ) -> common_pb2.ActionResponse:

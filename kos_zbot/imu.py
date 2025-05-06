@@ -41,6 +41,7 @@ def _sensor_proc(q: Queue, rate_hz: int):
                 sensor.gyro,
                 sensor.magnetic,
                 sensor.quaternion,
+                sensor.calibration_status,
             )
         except Exception:
             # If sensor failure, log full traceback and skip
@@ -81,8 +82,9 @@ class BNO055Manager:
         self._buffer = {
             'accel': (0.0, 0.0, 0.0),
             'gyro':  (0.0, 0.0, 0.0),
-            'mag':   (0.0, 0.0, 0.0),
-            'quat':  (0.0, 0.0, 0.0, 0.0),
+            'mag':   (0.0, 0.0, 0.0), 
+            'quat':  (0.0, 0.0, 0.0, 0.0), 
+            'calib': (0, 0, 0, 0),  # sys, gyro, accel, mag
         }
         self._lock = threading.Lock()
 
@@ -128,7 +130,7 @@ class BNO055Manager:
         """Continuously drain queue; update buffer only with fully valid readings."""
         while not self._stop_reader.is_set():
             try:
-                accel, gyro, mag, quat = self._queue.get(timeout=0.1)
+                accel, gyro, mag, quat, calib  = self._queue.get(timeout=0.1)
                 with self._lock:
                     if accel is not None and all(v is not None for v in accel):
                         self._buffer['accel'] = accel
@@ -138,6 +140,8 @@ class BNO055Manager:
                         self._buffer['mag'] = mag
                     if quat is not None and all(v is not None for v in quat):
                         self._buffer['quat'] = quat
+                    if calib is not None and all(v is not None for v in calib):
+                        self._buffer['calib'] = calib
             except queue.Empty:
                 continue
             except Exception:
@@ -157,6 +161,11 @@ class BNO055Manager:
         with self._lock:
             return self._buffer['quat']
 
+    def get_calibration_status(self):
+        """Get latest calibration status tuple (sys, gyro, accel, mag)."""
+        with self._lock:
+            return self._buffer['calib']
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
@@ -166,11 +175,13 @@ if __name__ == "__main__":
         while True:
             accel, gyro, mag = imu.get_values()
             quat = imu.get_quaternion()
+            calib = imu.get_calibration_status()
             print("\033[H\033[J", end="")
             print(f"Accelerometer (m/s^2): {accel}")
             print(f"Gyroscope    (rad/s):   {gyro}")
             print(f"Magnetometer (uT):      {mag}")
             print(f"Quaternion (w,x,y,z):   {quat}")
+            print(f"Calibration: (sys,gyro,accel,mag): {calib}")
             time.sleep(0.01)
     except KeyboardInterrupt:
         imu.stop()

@@ -12,7 +12,7 @@ from kos_protos import (
     imu_pb2_grpc,
 )
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
-from kos_zbot.imu import BNO055Manager
+from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 import logging
 import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
@@ -226,6 +226,10 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 mag_y=float(mag[1]),
                 mag_z=float(mag[2]),
             )
+        except IMUNotAvailableError as e:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(e))
+            return imu_pb2.IMUValuesResponse(error=common_pb2.Error(message=str(e)))
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -240,6 +244,10 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
             return imu_pb2.QuaternionResponse(
                 w=float(w), x=float(x), y=float(y), z=float(z)
             )
+        except IMUNotAvailableError as e:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(e))
+            return imu_pb2.QuaternionResponse(error=common_pb2.Error(message=str(e)))
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -254,6 +262,10 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
             return imu_pb2.EulerAnglesResponse(
                 roll=float(roll), pitch=float(pitch), yaw=float(yaw)
             )
+        except IMUNotAvailableError as e:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(e))
+            return imu_pb2.EulerAnglesResponse(error=common_pb2.Error(message=str(e)))
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -274,6 +286,10 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 grav_z=float(gravity[2]),
                 temp=float(temp),
             )
+        except IMUNotAvailableError as e:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(e))
+            return imu_pb2.IMUAdvancedValuesResponse(error=common_pb2.Error(message=str(e)))
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -294,6 +310,10 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
                 "mag": int(calib[3]),
             }
             return imu_pb2.GetCalibrationStateResponse(state=calib_map)
+        except IMUNotAvailableError as e:
+            context.set_code(grpc.StatusCode.UNAVAILABLE)
+            context.set_details(str(e))
+            return imu_pb2.GetCalibrationStateResponse(error=common_pb2.Error(message=str(e)))
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))

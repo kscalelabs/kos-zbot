@@ -197,10 +197,19 @@ async def show_status(scale: float = 180.0,
     imu_p = mp.Process(target=imu_worker, args=(imu_q, imu_freq, ip), daemon=True)
     act_p.start(); imu_p.start()
 
-    # wait for first data
-    while act_q.empty() or imu_q.empty(): await asyncio.sleep(0.01)
-    states = act_q.get()
-    imu_vals, imu_quat, imu_calib = imu_q.get()
+    # Default zero IMU values
+    zero_states = []
+    zero_imu_vals = {
+        "accel_x": 0.0, "accel_y": 0.0, "accel_z": 0.0,
+        "gyro_x": 0.0, "gyro_y": 0.0, "gyro_z": 0.0,
+        "mag_x": 0.0, "mag_y": 0.0, "mag_z": 0.0
+    }
+    zero_imu_quat = {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
+    zero_imu_calib = {"sys": 0, "gyro": 0, "accel": 0, "mag": 0}
+
+    # Start with all zeros
+    states = zero_states
+    imu_vals, imu_quat, imu_calib = zero_imu_vals, zero_imu_quat, zero_imu_calib
 
     render_rate = 30
     render_interval = 1.0 / render_rate
@@ -221,6 +230,9 @@ async def show_status(scale: float = 180.0,
 
             try:
                 imu_vals, imu_quat, imu_calib = imu_q.get_nowait();
+                if imu_vals is None: imu_vals = zero_imu_vals
+                if imu_quat is None: imu_quat = zero_imu_quat
+                if imu_calib is None: imu_calib = zero_imu_calib
                 updated = True
             except queue.Empty: 
                 pass

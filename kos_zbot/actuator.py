@@ -143,12 +143,6 @@ class SCSMotorController:
         # Initialize thread
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
 
-    
-    def _counts_to_degrees(self, counts: float) -> float:
-        return (counts * 360 / 4095) - 180
-        
-    def _degrees_to_counts(self, degrees: float) -> int:
-        return (degrees + 180) * (4095 / 360)
 
     def _add_actuator(self, actuator_id: int) -> bool:
         """Add a new actuator to the controller"""
@@ -240,7 +234,7 @@ class SCSMotorController:
                     acceleration = config['acceleration']
                     # Convert if needed
                     if acceleration != 0:
-                        acceleration = self._degrees_to_counts(acceleration) / 100.0
+                        acceleration = self._degrees_to_counts(acceleration, offset=0.0) / 100.0
                     acceleration = int(acceleration)
                     if not (0 <= acceleration <= 255):
                         self.log.error(f"acceleration out of range: {acceleration}")
@@ -508,7 +502,16 @@ class SCSMotorController:
             self.group_sync_write.addParam(actuator_id, position_data)
         self.group_sync_write.txPacket()
 
-            
+
+    def _counts_to_degrees(self, counts: float, offset: float = 180.0) -> float:
+        """Convert raw counts to degrees with optional offset"""
+        return (counts * 360 / 4096) - offset
+
+    def _degrees_to_counts(self, degrees: float, offset: float = 180.0) -> int:
+        """Convert degrees to raw counts with optional offset"""
+        return int((degrees + offset) * (4096 / 360))
+        
+
     def set_positions(self, position_dict: Dict[int, float]):
         """Set target positions for multiple actuators atomically (positions in degrees)."""
         with self._target_positions_lock:
@@ -516,7 +519,7 @@ class SCSMotorController:
                 self.next_position_batch = {}
 
             for actuator_id, degrees in position_dict.items():
-                counts = self._degrees_to_counts(degrees)
+                counts = self._degrees_to_counts(degrees, offset=180.0)
                 self.next_position_batch[actuator_id] = counts
                 self.commanded_ids.add(actuator_id)
             
@@ -525,14 +528,14 @@ class SCSMotorController:
         with self._positions_lock:
             positions = self._active_positions
         value = positions.get(actuator_id)
-        return self._counts_to_degrees(value) if value is not None else None
+        return self._counts_to_degrees(value, offset=180.0) if value is not None else None
 
     def get_velocity(self, actuator_id: int) -> Optional[float]:
         """Get current velocity of a specific actuator"""
         with self._positions_lock:
             velocities = self._active_velocities
         value = velocities.get(actuator_id)
-        return self._counts_to_degrees(value) if value is not None else None
+        return self._counts_to_degrees(value, offset=0.0) if value is not None else None
 
     def get_state(self, actuator_id: int) -> Optional[dict]:
         """Get current position and velocity of a specific actuator"""
@@ -544,8 +547,8 @@ class SCSMotorController:
         if pos is None or vel is None:
             return None
         return {
-            "position": self._counts_to_degrees(pos),
-            "velocity": self._counts_to_degrees(vel)
+            "position": self._counts_to_degrees(pos, offset=180.0),
+            "velocity": self._counts_to_degrees(vel, offset=0.0)
         }
 
     def get_torque_enabled(self, actuator_id: int) -> bool:
@@ -753,7 +756,7 @@ class SCSMotorController:
         self._lockEEPROM(actuator_id)
 
         # Set the target and buffers to zero
-        self.last_commanded_positions[actuator_id] = self._degrees_to_counts(0)
+        self.last_commanded_positions[actuator_id] = self._degrees_to_counts(0, offset=180.0)
         self._positions_a[actuator_id] = 0
         self._positions_b[actuator_id] = 0
 

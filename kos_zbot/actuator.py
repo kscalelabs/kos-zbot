@@ -99,7 +99,7 @@ class SCSMotorController:
             raise RuntimeError("failed to open the port")
         self.log.info(f"port opened at {self.port_handler.getBaudRate()} baud") 
             
-        self.group_sync_read = GroupSyncRead(self.packet_handler, SMS_STS_PRESENT_POSITION_L, 2)
+        self.group_sync_read = GroupSyncRead(self.packet_handler, SMS_STS_PRESENT_POSITION_L, 4)
         self.group_sync_write = GroupSyncWrite(self.packet_handler, SMS_STS_GOAL_POSITION_L, 2)
 
         # Bus Error Mitigation
@@ -113,6 +113,9 @@ class SCSMotorController:
         self._positions_a = {}
         self._positions_b = {}
         self._active_positions = self._positions_a
+        self._velocities_a = {}
+        self._velocities_b = {}
+        self._active_velocities = self._velocities_a
 
         # Locks
         self._control_lock = threading.Lock()
@@ -332,7 +335,7 @@ class SCSMotorController:
                         if self.actuator_ids:
                             self._read_positions()
                             # Add small delay between read and write
-                            time.sleep(0.002)  # 1ms delay
+                            time.sleep(0.002)  # intentional delay between read and write
                             self._write_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
@@ -416,6 +419,7 @@ class SCSMotorController:
         """Read current positions from all servos"""
         current_time = time.monotonic()
         new_positions = {}
+        new_velocities = {}
 
         # Rebuild group sync read param list, skipping actuators with skip_counts > 0 ---
         self.group_sync_read.clearParam()
@@ -437,11 +441,14 @@ class SCSMotorController:
                 self.skip_counts[actuator_id] -= 1
                 continue
 
-            data_result, error = self.group_sync_read.isAvailable(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+            data_result, error = self.group_sync_read.isAvailable(actuator_id, SMS_STS_PRESENT_POSITION_L, 4)
             if data_result:
                 if error == 0:
-                    position = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 2)
+                    data = self.group_sync_read.getData(actuator_id, SMS_STS_PRESENT_POSITION_L, 4)
+                    position = self.packet_handler.scs_tohost(data & 0xFFFF, 15)
+                    velocity = self.packet_handler.scs_tohost((data >> 16) & 0xFFFF, 15)
                     new_positions[actuator_id] = position
+                    new_velocities[actuator_id] = velocity
                     self.skip_counts[actuator_id] = 0  # Reset skip count on successful read
                 else:
                     # Data received, but servo reported an error
@@ -458,13 +465,17 @@ class SCSMotorController:
                 
 
             # Write to the inactive buffer
-            inactive = self._positions_b if self._active_positions is self._positions_a else self._positions_a
-            inactive.clear()
-            inactive.update(new_positions)
+            inactive_positions = self._positions_b if self._active_positions is self._positions_a else self._positions_a
+            inactive_velocities = self._velocities_b if self._active_velocities is self._velocities_a else self._velocities_a
+            inactive_positions.clear()
+            inactive_positions.update(new_positions)
+            inactive_velocities.clear()
+            inactive_velocities.update(new_velocities)
 
             # Swap the active buffer
             with self._positions_lock:
-                self._active_positions = inactive
+                self._active_positions = inactive_positions
+                self._active_velocities = inactive_velocities
     
 
     def _write_positions(self):
@@ -478,7 +489,11 @@ class SCSMotorController:
                 self.last_commanded_positions.update(self.next_position_batch)
                 self.next_position_batch = None
             
-        write_ids = self.torque_enabled_ids & self.commanded_ids
+        # Only write to actuators that are not being skipped
+        write_ids = [
+            actuator_id for actuator_id in (self.torque_enabled_ids & self.commanded_ids)
+            if self.skip_counts.get(actuator_id, 0) == 0
+        ]
 
         self.group_sync_write.clearParam()
         for actuator_id in sorted(write_ids):
@@ -511,6 +526,27 @@ class SCSMotorController:
             positions = self._active_positions
         value = positions.get(actuator_id)
         return self._counts_to_degrees(value) if value is not None else None
+
+    def get_velocity(self, actuator_id: int) -> Optional[float]:
+        """Get current velocity of a specific actuator"""
+        with self._positions_lock:
+            velocities = self._active_velocities
+        value = velocities.get(actuator_id)
+        return self._counts_to_degrees(value) if value is not None else None
+
+    def get_state(self, actuator_id: int) -> Optional[dict]:
+        """Get current position and velocity of a specific actuator"""
+        with self._positions_lock:
+            positions = self._active_positions
+            velocities = self._active_velocities
+        pos = positions.get(actuator_id)
+        vel = velocities.get(actuator_id)
+        if pos is None or vel is None:
+            return None
+        return {
+            "position": self._counts_to_degrees(pos),
+            "velocity": self._counts_to_degrees(vel)
+        }
 
     def get_torque_enabled(self, actuator_id: int) -> bool:
         return actuator_id in self.torque_enabled_ids

@@ -42,6 +42,7 @@ def make_table(states: list, scale: float = 180.0) -> Table:
     tbl = Table(title="Actuator State", show_header=True, header_style="bold magenta")
     tbl.add_column("ID", justify="right", no_wrap=True)
     tbl.add_column("Pos °", justify="right")
+    tbl.add_column("Vel °/s", justify="right")  # <-- New velocity column
     tbl.add_column(f"Position (±{scale}°)", no_wrap=True)
     tbl.add_column("Torque", justify="center")
     tbl.add_column("Last Fault", justify="left")
@@ -61,9 +62,12 @@ def make_table(states: list, scale: float = 180.0) -> Table:
             last_fault = ", ".join(s.faults) if s.faults else ""
             fault_count = str(len(s.faults)) if s.faults else "0"
             last_fault_time = ""
+        # Add velocity to the row (default to 0.0 if not present)
+        velocity = getattr(s, "velocity", 0.0)
         tbl.add_row(
             str(s.actuator_id),
             f"{s.position:6.2f}",
+            f"{velocity:6.2f}",  # <-- Velocity value
             bar,
             torque,
             last_fault,
@@ -133,6 +137,7 @@ def actuator_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
                 serial_states = [{
                     "actuator_id": s.actuator_id,
                     "position":    s.position,
+                    "velocity":    s.velocity,
                     "online":      s.online,
                     "faults":      list(s.faults),
                 } for s in resp.states]

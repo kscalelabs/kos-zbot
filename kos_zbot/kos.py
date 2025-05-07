@@ -160,10 +160,8 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         faults=["servo not registered"],
                     )
 
-                torque_enabled = self.actuator_controller.get_torque_enabled(
-                    actuator_id
-                )
-                position_deg = self.actuator_controller.get_position(actuator_id)
+                torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
+                state_dict = self.actuator_controller.get_state(actuator_id)
                 fault_info = self.actuator_controller.get_faults(actuator_id)
                 if fault_info is None:
                     faults = []
@@ -174,7 +172,7 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         str(int(fault_info['last_fault_time']))  # as integer timestamp
                     ]
 
-                if position_deg is None:
+                if state_dict is None:
                     state = actuator_pb2.ActuatorStateResponse(
                         actuator_id=actuator_id,
                         position=0.0,
@@ -185,8 +183,8 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                 else:
                     state = actuator_pb2.ActuatorStateResponse(
                         actuator_id=actuator_id,
-                        position=position_deg,
-                        velocity=0.0,
+                        position=state_dict.get("position", 0.0),
+                        velocity=state_dict.get("velocity", 0.0),
                         online=torque_enabled,
                         faults=faults,
                     )
@@ -317,7 +315,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     try:
         actuator_controller = SCSMotorController(
-            device="/dev/ttyAMA5", baudrate=250000, rate=50
+            device="/dev/ttyAMA5", baudrate=500000, rate=50
         )
         actuator_controller.start()
     except NoActuatorsFoundError as e:

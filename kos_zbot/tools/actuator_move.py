@@ -40,6 +40,8 @@ async def actuator_move(ids, positions, kp=None, kd=None, acceleration=None, wai
             kwargs['kd'] = kd
         if acceleration is not None:
             kwargs['acceleration'] = acceleration
+        else:
+            kwargs['acceleration'] = 1000
         kwargs['torque_enabled'] = True  # Always enable torque
         if kwargs:
             await kos.actuator.configure_actuator(actuator_id=aid, **kwargs)

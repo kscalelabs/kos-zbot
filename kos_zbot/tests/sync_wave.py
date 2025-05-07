@@ -73,8 +73,23 @@ async def run_sine_test(
 
     signal.signal(signal.SIGINT, handle_sigint)
 
+    try:
+        state_resp = await kos.actuator.get_actuators_state()
+        available_ids = {s.actuator_id for s in state_resp.states}
+    except Exception as e:
+        log.error(f"No actuators available: {e}")
+        return
+
+    valid_actuator_ids = [aid for aid in actuator_ids if aid in available_ids]
+    missing_actuators = [aid for aid in actuator_ids if aid not in available_ids]
+    if missing_actuators:
+        log.warning(f"Skipping non-existent actuators: {missing_actuators}")
+    if not valid_actuator_ids:
+        log.error("No valid actuators to test. Exiting.")
+        return
+
     log.info("configure actuators")
-    for actuator_id in actuator_ids:
+    for actuator_id in valid_actuator_ids:
         await kos.actuator.configure_actuator(
             actuator_id=actuator_id,
             kp=kp,
@@ -90,7 +105,8 @@ async def run_sine_test(
     for pattern in wave_patterns.values():
         pattern_start_pos = pattern.get("start_pos", start_pos)
         for aid in pattern["actuators"]:
-            commands.append({"actuator_id": aid, "position": pattern_start_pos})
+            if aid in valid_actuator_ids:
+                commands.append({"actuator_id": aid, "position": pattern_start_pos})
     await kos.actuator.command_actuators(commands)
     await asyncio.sleep(2.0)
 
@@ -107,7 +123,7 @@ async def run_sine_test(
             commands = []
 
             if sync_all:
-                for aid in actuator_ids:
+                for aid in valid_actuator_ids:
                     angle = 2 * np.pi * frequency * current_time
                     position = start_pos + amplitude * np.sin(angle)
                     commands.append({"actuator_id": aid, "position": position})
@@ -121,16 +137,17 @@ async def run_sine_test(
                     pattern_pos_offset = pattern.get("position_offset", 0.0)
 
                     for aid in pattern["actuators"]:
-                        angle = (
-                            2 * np.pi * pattern_freq * pattern_freq_mult * current_time
-                            + np.deg2rad(pattern_phase)
-                        )
-                        position = (
-                            pattern_start
-                            + pattern_amp * np.sin(angle)
-                            + pattern_pos_offset
-                        )
-                        commands.append({"actuator_id": aid, "position": position})
+                        if aid in valid_actuator_ids:
+                            angle = (
+                                2 * np.pi * pattern_freq * pattern_freq_mult * current_time
+                                + np.deg2rad(pattern_phase)
+                            )
+                            position = (
+                                pattern_start
+                                + pattern_amp * np.sin(angle)
+                                + pattern_pos_offset
+                            )
+                            commands.append({"actuator_id": aid, "position": position})
 
             await kos.actuator.command_actuators(commands)
 
@@ -143,7 +160,7 @@ async def run_sine_test(
         log.error(f"exception during test: {e}")
     finally:
         log.info("return to start position")
-        commands = [{"actuator_id": aid, "position": start_pos} for aid in actuator_ids]
+        commands = [{"actuator_id": aid, "position": start_pos} for aid in valid_actuator_ids]
         await kos.actuator.command_actuators(commands)
         await asyncio.sleep(1.0)
 

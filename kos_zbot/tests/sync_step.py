@@ -66,19 +66,35 @@ async def run_step_test(
         log.info("sigint received")
 
     signal.signal(signal.SIGINT, handle_sigint)
-
-    if seed is not None:
-        random.seed(seed)
-
     if await kos_ready_async(kos_ip):
         kos = KOS(kos_ip)
     else:
         log.error("KOS service not available at %s:50051", kos_ip)
         return
+
+    try:
+        state_resp = await kos.actuator.get_actuators_state()
+        available_ids = {s.actuator_id for s in state_resp.states}
+    except Exception as e:
+        log.error(f"No actuators available: {e}")
+        return
+
+    valid_actuator_ids = [aid for aid in actuator_ids if aid in available_ids]
+    missing_actuators = [aid for aid in actuator_ids if aid not in available_ids]
+    if missing_actuators:
+        log.warning(f"Skipping non-existent actuators: {missing_actuators}")
+    if not valid_actuator_ids:
+        log.error("No valid actuators to test. Exiting.")
+        return
+
+    if seed is not None:
+        random.seed(seed)
+
+  
     
     # Configure each actuator
     log.info("configure actuators")
-    for actuator_id in actuator_ids:
+    for actuator_id in valid_actuator_ids:
         await kos.actuator.configure_actuator(
             actuator_id=actuator_id,
             kp=kp,
@@ -96,7 +112,7 @@ async def run_step_test(
             'actuator_id': actuator_id,
             'position': start_pos,
         }
-        for actuator_id in actuator_ids
+        for actuator_id in valid_actuator_ids
     ]
     await kos.actuator.command_actuators(commands)
     
@@ -146,7 +162,7 @@ async def run_step_test(
                 'actuator_id': actuator_id,
                 'position': target_pos,
             }
-            for actuator_id in actuator_ids
+            for actuator_id in valid_actuator_ids
         ]
         await kos.actuator.command_actuators(commands)
         await asyncio.sleep(step_hold_time)
@@ -154,7 +170,7 @@ async def run_step_test(
     log.info("return to start position")
     commands = [
         {'actuator_id': aid, 'position': start_pos}
-        for aid in actuator_ids
+        for aid in valid_actuator_ids
     ]
     await kos.actuator.command_actuators(commands)
     await asyncio.sleep(1.0)

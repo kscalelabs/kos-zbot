@@ -41,24 +41,11 @@ sudo apt install portaudio19-dev python3-dev
 conda create -n kos python=3.12
 conda activate kos
 
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install pyaudio (if not included in requirements.txt)
-pip install pyaudio
+git clone https://github.com/kscalelabs/kos-zbot
+cd kos-zbot
+pip install -e .
 ```
 
----
-
-## KOS Python Package Build
-
-```bash
-# Build the KOS package
-pip install build
-python -m build
-```
-
----
 
 ## Raspberry Pi System Configuration
 
@@ -68,8 +55,6 @@ Allow Python to set realtime priorities (for low-latency control):
 
 ```bash
 sudo setcap cap_sys_nice=eip $(readlink -f $(which python))
-# Or, if using a conda environment, specify the python path:
-sudo setcap cap_sys_nice=eip $(readlink -f /home/<youruser>/miniforge3/envs/kos/bin/python)
 ```
 
 ---

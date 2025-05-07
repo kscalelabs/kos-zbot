@@ -25,7 +25,8 @@ setup(
         'openai[realtime]',
         'protobuf==5.29.0',
         'click',
-        'rich'
+        'rich',
+        'RPi.GPIO'
     ],
     entry_points={
         'console_scripts': [

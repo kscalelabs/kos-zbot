@@ -158,7 +158,9 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         velocity=0.0,
                         online=False,
                         faults=["servo not registered"],
-                    )
+                        )
+                    states.append(state)
+                    continue
 
                 torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
                 state_dict = self.actuator_controller.get_state(actuator_id)

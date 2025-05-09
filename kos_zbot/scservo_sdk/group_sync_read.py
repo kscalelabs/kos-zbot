@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from .scservo_def import *
+import time
 
 class GroupSyncRead:
     def __init__(self, ph, start_address, data_length):
@@ -12,6 +13,8 @@ class GroupSyncRead:
         self.is_param_changed = False
         self.param = []
         self.data_dict = {}
+        self.stamp_dict   = {}   # id → last‑ok monotonic time (s)
+        self.max_age_s    = 0.05 # accept data that is ≤50 ms old
 
         self.clearParam()
 
@@ -66,10 +69,12 @@ class GroupSyncRead:
         # print(rxpacket)
         if len(rxpacket) >= (self.data_length+6):
             for scs_id in self.data_dict:
-                self.data_dict[scs_id], result = self.readRx(rxpacket, scs_id, self.data_length)
-                if result != COMM_SUCCESS:
-                    self.last_result = False
-                # print(scs_id)
+                frame, result = self.readRx(rxpacket, scs_id, self.data_length)
+                if result == COMM_SUCCESS and frame:
+                    self.data_dict[scs_id]  = frame
+                    self.stamp_dict[scs_id] = time.monotonic()
+                else:
+                    self.last_result = False         # keep old data, just flag error
         else:
             self.last_result = False
         # print(self.last_result)
@@ -124,16 +129,18 @@ class GroupSyncRead:
         return None, COMM_RX_CORRUPT
 
     def isAvailable(self, scs_id, address, data_length):
-        #if self.last_result is False or scs_id not in self.data_dict:
-        if scs_id not in self.data_dict:
+        # quick structural checks
+        if (scs_id not in self.data_dict or
+            address < self.start_address or
+            address + data_length > self.start_address + self.data_length or
+            len(self.data_dict[scs_id]) < data_length + 1):
             return False, 0
 
-        if (address < self.start_address) or (self.start_address + self.data_length - data_length < address):
+        # age test
+        age = time.monotonic() - self.stamp_dict.get(scs_id, 0)
+        if age > self.max_age_s:
             return False, 0
-        if not self.data_dict[scs_id]:
-            return False, 0
-        if len(self.data_dict[scs_id])<(data_length+1):
-            return False, 0
+
         return True, self.data_dict[scs_id][0]
 
     def getData(self, scs_id, address, data_length):

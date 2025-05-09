@@ -316,43 +316,53 @@ class SCSMotorController:
         
     
     def _update_loop(self):
-        """Main update loop running at specified rate with precise timing"""
-        next_time = time.monotonic()
+        """
+        Main update loop running at `self.rate` Hz with a sleep‑then‑spin scheduler.
+        Uses a single monotonic‑ns timeline so one overrun never skews the cadence.
+        """
+        PERIOD_NS   = int(self.period * 1e9)   # e.g. 20 000 000 ns
+        SPIN_US     = 100                      # busy‑wait window (µs) – tune on your CPU
+        SPIN_NS     = SPIN_US * 1_000
+        next_time   = time.monotonic_ns()
         
         while self.running:
-            current_time = time.monotonic()
+            # -- Perform Work --
+            now_ns = time.monotonic_ns()
             
-            # Only perform read/write if enough time has passed since last config
-            if current_time - self.last_config_time >= self.CONFIG_GRACE_PERIOD:
+            if (now_ns - self.last_config_time*1e9) >= self.CONFIG_GRACE_PERIOD*1e9:
                 try:
                     with self._control_lock:
                         if self.actuator_ids:
                             self._read_positions()
-                            # Add small delay between read and write
-                            time.sleep(0.002)  # intentional delay between read and write
+                            time.sleep(0.002)          # 2 ms I/O settle
                             self._write_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
+
+            # -- Schedule Next Tick --
+            next_time += PERIOD_NS
+            now_ns     = time.monotonic_ns()            # refresh after work
+            sleep_ns   = next_time - now_ns - SPIN_NS   # leave SPIN_NS to spin
             
-            # Precise timing control using monotonic time
-            next_time += self.period
-            sleep_time = next_time - time.monotonic()
-            
-            if sleep_time > 0:
-                # For sub-millisecond precision, use busy waiting for the last bit
-                target_time = time.monotonic() + sleep_time
-                long_sleep = sleep_time - 0.001  # Leave 1ms for fine adjustment
-                
-                if long_sleep > 0:
-                    time.sleep(long_sleep)
-                    
-                # Busy-wait for the remainder
-                while time.monotonic() < target_time:
-                    pass
-            else:
-                # If we're behind, reset timing instead of trying to catch up
-                next_time = time.monotonic() + self.period
-                self.log.warning("timing overrun detected")
+            if sleep_ns > 0:
+                # coarse sleep (GIL released)
+                time.sleep(sleep_ns / 1e9)
+
+            # fine spin – last ≤ SPIN_US
+            while time.monotonic_ns() < next_time:
+                pass                                    # CPU‑bound for ≤ 100 µs
+
+            over_ns = time.monotonic_ns() - next_time
+            if over_ns > 0:
+                next_time = time.monotonic_ns()
+
+            over_us = over_ns / 1_000   # ns → µs
+            if   over_us > 5_000:
+                self.log.error(  f"hard overrun {over_us/1000:.2f} ms")
+            elif over_us > 2_000:
+                self.log.warning(f"overrun      {over_us/1000:.2f} ms")
+            elif over_us > 500:
+                self.log.debug(  f"minor jitter {over_us/1000:.2f} ms")
 
 
     def _get_params(self, actuator_id: int) -> dict:

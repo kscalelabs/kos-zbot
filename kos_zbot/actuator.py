@@ -483,34 +483,46 @@ class SCSMotorController:
     
 
     def _write_positions(self):
-        """Write positions to all servos synchronously"""
+        """Write positions to all servos synchronously, honoring original semantics but updating params incrementally."""
+        # nothing to do if no torque‐enabled servos
         if not self.torque_enabled_ids:
             return
 
-        # Update our target if there are new positions
+        # 1) Incorporate any newly‐queued batch of targets
         with self._target_positions_lock:
             if self.next_position_batch is not None:
                 self.last_commanded_positions.update(self.next_position_batch)
                 self.next_position_batch = None
-            
-        # Only write to actuators that are not being skipped
-        write_ids = [
-            actuator_id for actuator_id in (self.torque_enabled_ids & self.commanded_ids)
-            # if self.skip_counts.get(actuator_id, 0) == 0  # Skip condition disabled for now
-        ]
 
-        self.group_sync_write.clearParam()
-        for actuator_id in sorted(write_ids):
-            position = self.last_commanded_positions.get(actuator_id)
-            if position is None:
-                continue
+        # 2) Compute exactly which servos to command this tick
+        write_ids = sorted(self.torque_enabled_ids & self.commanded_ids)
 
-            position_data = [
-                self.packet_handler.scs_lobyte(int(position)),
-                self.packet_handler.scs_hibyte(int(position))
+        # 3) Incrementally add/update any new or changed targets…
+        for aid in write_ids:
+            counts = self.last_commanded_positions.get(aid)
+            if counts is None:
+                continue  # no valid target yet
+
+            data = [
+                self.packet_handler.scs_lobyte(int(counts)),
+                self.packet_handler.scs_hibyte(int(counts)),
             ]
-            self.group_sync_write.addParam(actuator_id, position_data)
+
+            if aid in self.group_sync_write.data_dict:
+                # already present → update in place
+                self.group_sync_write.changeParam(aid, data)
+            else:
+                # new target → add to the sync‐write list
+                self.group_sync_write.addParam(aid, data)
+
+        # 4) Remove any servos that used to be commanded but no longer are
+        for old_id in list(self.group_sync_write.data_dict):
+            if old_id not in write_ids:
+                self.group_sync_write.removeParam(old_id)
+
+        # 5) Send exactly those commands
         self.group_sync_write.txPacket()
+
 
 
     def _counts_to_degrees(self, counts: float, offset: float = 180.0) -> float:

@@ -332,7 +332,7 @@ class SCSMotorController:
         os.sched_setaffinity(0, {1})
         allowed = os.sched_getaffinity(0)
         self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
-        
+        gc.set_threshold(700, 10, 5) # Increase the gen-2 requency to mitigate pileup ? TODO: investigate
         while self.running:
             # -- Perform Work --
             now_ns = time.monotonic_ns()

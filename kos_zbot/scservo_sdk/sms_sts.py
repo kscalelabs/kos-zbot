@@ -70,52 +70,53 @@ SMS_STS_DEFAULT_KACC = 86
 class sms_sts(protocol_packet_handler):
     def __init__(self, portHandler):
         protocol_packet_handler.__init__(self, portHandler, 0)
-        self.groupSyncWrite = GroupSyncWrite(self, SMS_STS_ACC, 7)
-
-    def WritePosEx(self, scs_id, position, speed, acc):
-        txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.writeTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
-
-    def ReadPos(self, scs_id):
-        scs_present_position, scs_comm_result, scs_error = self.read2ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
-        return self.scs_tohost(scs_present_position, 15), scs_comm_result, scs_error
-
-    def ReadSpeed(self, scs_id):
-        scs_present_speed, scs_comm_result, scs_error = self.read2ByteTxRx(scs_id, SMS_STS_PRESENT_SPEED_L)
-        return self.scs_tohost(scs_present_speed, 15), scs_comm_result, scs_error
-
-    def ReadPosSpeed(self, scs_id):
-        scs_present_position_speed, scs_comm_result, scs_error = self.read4ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
-        scs_present_position = self.scs_loword(scs_present_position_speed)
-        scs_present_speed = self.scs_hiword(scs_present_position_speed)
-        return self.scs_tohost(scs_present_position, 15), self.scs_tohost(scs_present_speed, 15), scs_comm_result, scs_error
-
-    def ReadMoving(self, scs_id):
-        moving, scs_comm_result, scs_error = self.read1ByteTxRx(scs_id, SMS_STS_MOVING)
-        return moving, scs_comm_result, scs_error
-
-    def SyncWritePosEx(self, scs_id, position, speed, acc):
-        txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.groupSyncWrite.addParam(scs_id, txpacket)
-
-    def RegWritePosEx(self, scs_id, position, speed, acc):
-        txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.regWriteTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
-
-    def RegAction(self):
-        return self.action(BROADCAST_ID)
-
-    def WheelMode(self, scs_id):
-        return self.write1ByteTxRx(scs_id, SMS_STS_MODE, 1)
-
-    def WriteSpec(self, scs_id, speed, acc):
-        speed = self.scs_toscs(speed, 15)
-        txpacket = [acc, 0, 0, 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
-        return self.writeTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
+        #self.groupSyncWrite = GroupSyncWrite(self, SMS_STS_ACC, 7)
 
     def LockEprom(self, scs_id):
         return self.write1ByteTxRx(scs_id, SMS_STS_LOCK, 1)
 
     def unLockEprom(self, scs_id):
         return self.write1ByteTxRx(scs_id, SMS_STS_LOCK, 0)
+
+    #def WritePosEx(self, scs_id, position, speed, acc):
+    #    txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
+    #    return self.writeTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
+
+    #def ReadPos(self, scs_id):
+    #    scs_present_position, scs_comm_result, scs_error = self.read2ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
+    #    return self.scs_tohost(scs_present_position, 15), scs_comm_result, scs_error
+
+    #def ReadSpeed(self, scs_id):
+    #    scs_present_speed, scs_comm_result, scs_error = self.read2ByteTxRx(scs_id, SMS_STS_PRESENT_SPEED_L)
+    #    return self.scs_tohost(scs_present_speed, 15), scs_comm_result, scs_error
+
+    #def ReadPosSpeed(self, scs_id):
+    #    scs_present_position_speed, scs_comm_result, scs_error = self.read4ByteTxRx(scs_id, SMS_STS_PRESENT_POSITION_L)
+    #    scs_present_position = self.scs_loword(scs_present_position_speed)
+    #    scs_present_speed = self.scs_hiword(scs_present_position_speed)
+    #    return self.scs_tohost(scs_present_position, 15), self.scs_tohost(scs_present_speed, 15), scs_comm_result, scs_error
+
+    #def ReadMoving(self, scs_id):
+    #    moving, scs_comm_result, scs_error = self.read1ByteTxRx(scs_id, SMS_STS_MOVING)
+    #    return moving, scs_comm_result, scs_error
+
+    #def SyncWritePosEx(self, scs_id, position, speed, acc):
+    #    txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
+    #    return self.groupSyncWrite.addParam(scs_id, txpacket)
+
+    #def RegWritePosEx(self, scs_id, position, speed, acc):
+    #    txpacket = [acc, self.scs_lobyte(position), self.scs_hibyte(position), 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
+    #    return self.regWriteTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
+
+    #def RegAction(self):
+    #    return self.action(BROADCAST_ID)
+
+    #def WheelMode(self, scs_id):
+    #    return self.write1ByteTxRx(scs_id, SMS_STS_MODE, 1)
+
+    #def WriteSpec(self, scs_id, speed, acc):
+    #    speed = self.scs_toscs(speed, 15)
+    #    txpacket = [acc, 0, 0, 0, 0, self.scs_lobyte(speed), self.scs_hibyte(speed)]
+    #    return self.writeTxRx(scs_id, SMS_STS_ACC, len(txpacket), txpacket)
+
 

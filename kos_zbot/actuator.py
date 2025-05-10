@@ -76,6 +76,7 @@ servoRegs = [
 class SCSMotorController:
     def __init__(self, device='/dev/ttyAMA5', baudrate=500000, rate=50, actuator_ids=None):
         """Initialize the motor controller with minimal setup"""
+
         self.log = get_logger(__name__)
         self.rate = rate
         self.period = 1.0 / rate
@@ -324,6 +325,10 @@ class SCSMotorController:
         SPIN_US     = 100                      # busy‑wait window (µs) – tune on your CPU
         SPIN_NS     = SPIN_US * 1_000
         next_time   = time.monotonic_ns()
+
+        os.sched_setaffinity(0, {1}) # pin to core 1
+        allowed = os.sched_getaffinity(0)
+        self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
         
         while self.running:
             # -- Perform Work --

@@ -1,6 +1,6 @@
 import threading
 import time
-from kos_zbot.scservo_sdk import *
+from kos_zbot.feetech import *
 from typing import Dict, Optional
 import os
 import sched

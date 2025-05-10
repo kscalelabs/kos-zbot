@@ -7,9 +7,10 @@ import platform
 
 #TODO: clean this up
 DEFAULT_BAUDRATE = 500000
-LATENCY_TIMER = 10 # 10us
 # Assume 50Hz
-MAX_BUSY_US = 8000         # 8 ms (40 % of a 20‑ms period)
+LATENCY_TIMER_US = 40      # 10 µs  → 0.01 ms
+MAX_BUSY_US      = 8_000   # 8 ms   hard cap
+MIN_TIMEOUT_US   = 1_000   # 1 ms   floor
 
 class PortHandler(object):
     def __init__(self, port_name):
@@ -65,30 +66,26 @@ class PortHandler(object):
     def writePort(self, packet):
         return self.ser.write(packet)
 
-    def setPacketTimeout(self, packet_length):
-        self.packet_start_time = self.getCurrentTime()
-        self.packet_timeout = (self.tx_time_per_byte * packet_length) + (self.tx_time_per_byte * 3.0) + LATENCY_TIMER
 
-    def setPacketTimeout(self, expected_bytes):
+    def setPacketTimeout(self, expected_bytes: int) -> None:
         """
-        expected_bytes : total bytes we still expect on the wire
-                        (caller already did: data_len + 6 etc.)
+        expected_bytes : bytes still to arrive on the wire
+                        (caller already added header etc.)
+        Stores the deadline in micro‑seconds so it matches getCurrentTime_us().
         """
-        self.packet_start_time = self.getCurrentTime()          # µs
+        self.packet_start_time = self.getCurrentTime_us()
 
-        bit_time_us = 1_000_000.0 / self.baudrate                 # e.g. 2.0 µs @500 kBd
-        # 10 bits / byte (8 data + start/stop)
-        calc_timeout = expected_bytes * 10.0 * bit_time_us
-
-        # Add Latency Fudge
-        calc_timeout += LATENCY_TIMER
-
-        # ------------- HARD CEILING -------------
-        if calc_timeout > MAX_BUSY_US:
+        bit_time_us  = 1_000_000.0 / self.baudrate     # e.g. 2.0 µs @ 500 kBd
+        calc_timeout = expected_bytes * 10.0 * bit_time_us   # 10 bits/byte
+        calc_timeout += LATENCY_TIMER_US                       # USB latency
+        # clamp into sane range
+        if calc_timeout < MIN_TIMEOUT_US:
+            calc_timeout = MIN_TIMEOUT_US
+        elif calc_timeout > MAX_BUSY_US:
             calc_timeout = MAX_BUSY_US
-        # ----------------------------------------
 
-        self.packet_timeout = calc_timeout
+        calc_timeout += 5_000
+        self.packet_timeout = calc_timeout              # ***micro‑seconds***
 
     def isPacketTimeout(self):
         if self.getTimeSinceStart() > self.packet_timeout:
@@ -97,16 +94,17 @@ class PortHandler(object):
 
         return False
 
-
-    def getCurrentTime(self):
-        return round(time.time() * 1000000000) / 1000000.0
-
     def getTimeSinceStart(self):
-        time_since = self.getCurrentTime() - self.packet_start_time
+        time_since = self.getCurrentTime_us() - self.packet_start_time
         if time_since < 0.0:
-            self.packet_start_time = self.getCurrentTime()
+            self.packet_start_time = self.getCurrentTime_us()
 
         return time_since
+
+    def getCurrentTime_us(self):
+        # monotonic, microseconds
+        return time.monotonic_ns() / 1_000.0
+
 
     def setupPort(self, cflag_baud):
         if self.is_open:

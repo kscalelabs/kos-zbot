@@ -48,12 +48,13 @@ class GroupSyncRead:
         self.data_dict.clear()
 
     def txPacket(self):
-        if len(self.data_dict.keys()) == 0:
+        if not self.data_dict:
 
             return COMM_NOT_AVAILABLE
 
         if self.is_param_changed is True or not self.param:
             self.makeParam()
+            self.is_param_changed = False
 
         return self.ph.syncReadTx(self.start_address, self.data_length, self.param, len(self.data_dict.keys()))
 

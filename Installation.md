@@ -54,7 +54,28 @@ pip install -e .
 Allow Python to set realtime priorities (for low-latency control):
 
 ```bash
+#Enable Thread Pinning
 sudo setcap cap_sys_nice=eip $(readlink -f $(which python))
+
+#Inspect interrupts and find uart_pl011 (double check that uart_pl011 is on IRQ 36)
+watch -n 0.2 cat /proc/interrupts
+
+# pin uart_pl011 irq to cpu1 (we pin our servo control loop also to cpu1)
+sudo sh -c 'echo 2 > /proc/irq/36/smp_affinity'
+
+# To set IRQ pinning persistently, add a udev rule 
+# nano /etc/udev/rules.d/80-irq-affinity.rules
+ACTION=="add", SUBSYSTEM=="irq", KERNEL=="36", ATTR{smp_affinity}="2"
+
+#Reload udev
+sudo udevadm control --reload
+
+#Optionally force device event now (or reboot and test)
+sudo udevadm trigger --action=add --subsystem-match=irq --attr-match=irq=36
+
+#Verify that udev rule has been applies to IRQ 36
+cat /proc/irq/36/smp_affinity
+
 ```
 
 ---
@@ -194,3 +215,23 @@ sudo nmcli device wifi connect "SSID" password "PASSWORD"
     ```bash
     aplay -D hw:3,0 pokeman.wav
     ```
+
+
+Enable Camera via raspi-config
+
+Install Gstreamer
+```bash
+sudo apt update
+sudo apt install -y \
+  gstreamer1.0-tools \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-ugly \
+  gstreamer1.0-libav \
+  libgstrtspserver-1.0-dev \
+  gstreamer1.0-libcamera
+
+  sudo apt install python3-gi python3-gst-1.0 gir1.2-gst-rtsp-server-1.0
+
+```

@@ -28,7 +28,9 @@ class protocol_packet_handler(object):
         self.portHandler = portHandler
         self.scs_end = protocol_end
         self.CHAR_TIME_US = 10.0 * 1_000_000 / self.portHandler.baudrate  # 10 bits/char (example: 500000 baud --> 20us per byte)
-        self.IDLE_GAP_US = self.CHAR_TIME_US * 2                          # 2‑char idle gap (example: 500000 baud --> 40us)
+        #self.IDLE_GAP_US = self.CHAR_TIME_US * 2                         # 2‑char idle gap (example: 500000 baud --> 40us)
+        self.IDLE_GAP_US = max(40 * self.CHAR_TIME_US, 5_000)
+        #self.IDLE_GAP_US  = max(150.0,  self.CHAR_TIME_US * 8)
          
     def scs_getend(self):
         return self.scs_end
@@ -156,19 +158,21 @@ class protocol_packet_handler(object):
     def rxPacket(self):
         rxpacket    = bytearray()
         result      = COMM_TX_FAIL
-        checksum    = 0
         wait_length = 6                      # HDR0 HDR1 ID LEN ERR CHK
-        last_byte_us = self.portHandler.getCurrentTime() # µs timestamp of last RX byte
+        last_byte_us = self.portHandler.getCurrentTime_us() # µs timestamp of last RX byte
+        first_byte_seen = False
 
         while True:
             chunk = self.portHandler.readPort(wait_length - len(rxpacket))
             if chunk:
                 rxpacket.extend(chunk)
-                last_byte_us = self.portHandler.getCurrentTime()           # reset idle timer
+                last_byte_us = self.portHandler.getCurrentTime_us()           # reset idle timer
+                first_byte_seen = True
             else:
                 # -------- GAP DETECTION --------
-                if self.portHandler.getCurrentTime() - last_byte_us > self.IDLE_GAP_US:
+                if first_byte_seen and self.portHandler.getCurrentTime_us() - last_byte_us > self.IDLE_GAP_US:
                     # no byte for > 2 char times → frame ended early
+                    print("gap!")
                     result = COMM_RX_CORRUPT
                     break
             # -------- FRAME‑ENOUGH TEST --------
@@ -182,6 +186,9 @@ class protocol_packet_handler(object):
             if rxpacket[0:2] != b'\xFF\xFF':
                 # discard leading garbage and resync
                 del rxpacket[0]
+                first_byte_seen = False   
+                last_byte_us = self.portHandler.getCurrentTime_us()
+                wait_length = 6 
                 continue
 
             # basic sanity of ID/LEN/ERR byte
@@ -189,6 +196,7 @@ class protocol_packet_handler(object):
                 rxpacket[PKT_LENGTH] > RXPACKET_MAX_LEN or
                 rxpacket[PKT_ERROR]  > 0x7F):
                 del rxpacket[0]        # drop first 0xFF, resync next loop
+                print("resync!")
                 continue
 
             # adjust expected total length if needed
@@ -197,6 +205,7 @@ class protocol_packet_handler(object):
                 continue
 
             # ---------- CHECKSUM ----------
+            checksum = 0
             for i in range(2, wait_length - 1):
                 checksum += rxpacket[i]
             checksum = (~checksum) & 0xFF

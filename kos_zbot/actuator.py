@@ -8,7 +8,7 @@ import platform
 from tabulate import tabulate  # Add this import at the top of the file
 from kos_zbot.utils.logging import get_logger
 from tqdm import tqdm
-
+import gc
 
 class NoActuatorsFoundError(Exception):
     pass
@@ -326,7 +326,10 @@ class SCSMotorController:
         SPIN_NS     = SPIN_US * 1_000
         next_time   = time.monotonic_ns()
 
-        os.sched_setaffinity(0, {1}) # pin to core 1
+        # disable garbage collection #TODO: investigate if we might want this, will need to be responsible for freeing memory
+        #gc.disable()
+        # pin to core 1
+        os.sched_setaffinity(0, {1})
         allowed = os.sched_getaffinity(0)
         self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
         
@@ -339,7 +342,7 @@ class SCSMotorController:
                     with self._control_lock:
                         if self.actuator_ids:
                             self._read_positions()
-                            time.sleep(0.002)          # 2 ms I/O settle
+                            #time.sleep(0.002)          # 2 ms I/O settle
                             self._write_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")

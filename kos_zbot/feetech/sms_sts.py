@@ -70,7 +70,6 @@ SMS_STS_DEFAULT_KACC = 86
 class sms_sts(protocol_packet_handler):
     def __init__(self, portHandler):
         protocol_packet_handler.__init__(self, portHandler, 0)
-        #self.groupSyncWrite = GroupSyncWrite(self, SMS_STS_ACC, 7)
 
     def LockEprom(self, scs_id):
         return self.write1ByteTxRx(scs_id, SMS_STS_LOCK, 1)

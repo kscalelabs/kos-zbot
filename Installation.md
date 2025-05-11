@@ -38,9 +38,16 @@
 sudo apt install portaudio19-dev python3-dev
 
 # (Optional) Create and activate a conda environment
-conda create -n kos python=3.12
-conda activate kos
+# Programmatic Miniforge install : https://github.com/conda-forge/miniforge
+wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+bash Miniforge3.sh -b -p "${HOME}/conda"
+source "${HOME}/conda/etc/profile.d/conda.sh"
 
+# K-OS Install
+conda activate
+conda create -n kos python=3.12 -y
+conda activate kos
+cd ~
 git clone https://github.com/kscalelabs/kos-zbot
 cd kos-zbot
 pip install -e .
@@ -101,12 +108,19 @@ Edit `/boot/firmware/config.txt` and add/verify the following lines:
 ```ini
 # KOS PI4 Configuration
 
+# SPI Display
+dtparam=spi=on
+# IMU
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 dtoverlay=i2c6,pins_22_23
+# Audio Devices 
+dtparam=i2s=on
 dtparam=audio=on
+# Camera
 camera_auto_detect=1
 display_auto_detect=1
+# Servo Controller
 auto_initramfs=1
 dtoverlay=vc4-kms-v3d
 max_framebuffers=2
@@ -116,11 +130,14 @@ disable_fw_kms_setup=1
 arm_64bit=1
 disable_overscan=1
 arm_boost=1
-dtparam=i2s=on
+
 
 [all]
+# Gadget Mode
 dtoverlay=dwc2
+# 
 dtoverlay=googlevoicehat-soundcard
+# Audio Amplifier
 dtoverlay=max98357a
 ```
 
@@ -213,8 +230,9 @@ sudo nmcli device wifi connect "SSID" password "PASSWORD"
 - Ensure the correct overlays are set in `/boot/firmware/config.txt` (see above).
 - Test playback with:
     ```bash
-    aplay -D hw:3,0 pokeman.wav
+    aplay -D hw:3,0 filename.wav
     ```
+- You will generally have to provide a `.wav` file through `scp`
 
 
 Enable Camera via raspi-config
@@ -234,4 +252,20 @@ sudo apt install -y \
 
   sudo apt install python3-gi python3-gst-1.0 gir1.2-gst-rtsp-server-1.0
 
+```
+
+### Display (SPI)
+
+- Ensure the correct overlays are set in `/boot/firmware/config.txt` (see above).
+    - Alternatively configurable through `raspi-config`
+- For current Bookworm operating systems, install `lgpio` to support the SPI / GPIO interfacing:
+
+```
+# Reference waveshare documentation: https://www.waveshare.com/wiki/2inch_LCD_Module?amazon#STM32_hardware_connection
+sudo su
+wget https://github.com/joan2937/lg/archive/master.zip
+unzip master.zip
+cd lg-master
+sudo make install
+exit
 ```

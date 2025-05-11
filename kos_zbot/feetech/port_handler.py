@@ -6,9 +6,9 @@ import sys
 import platform
 
 #TODO: clean this up
-DEFAULT_BAUDRATE = 500000
+DEFAULT_BAUDRATE = 1000000
 # Assume 50Hz
-LATENCY_TIMER_US = 40      # 10 µs  → 0.01 ms
+LATENCY_TIMER_US = 40      # 40 µs  → 0.04 ms
 MAX_BUSY_US      = 8_000   # 8 ms   hard cap
 MIN_TIMEOUT_US   = 1_000   # 1 ms   floor
 
@@ -67,7 +67,7 @@ class PortHandler(object):
         return self.ser.write(packet)
 
 
-    def setPacketTimeout(self, expected_bytes: int) -> None:
+    def setPacketTimeout(self, expected_bytes: int, extra_us: int = 0) -> None:
         """
         expected_bytes : bytes still to arrive on the wire
                         (caller already added header etc.)
@@ -84,7 +84,7 @@ class PortHandler(object):
         elif calc_timeout > MAX_BUSY_US:
             calc_timeout = MAX_BUSY_US
 
-        calc_timeout += 5_000
+        calc_timeout += extra_us
         self.packet_timeout = calc_timeout              # ***micro‑seconds***
 
     def isPacketTimeout(self):

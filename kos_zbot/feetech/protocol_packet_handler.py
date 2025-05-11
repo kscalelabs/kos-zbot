@@ -1,25 +1,31 @@
 #!/usr/bin/env python
 
 from .scservo_def import *
+from kos_zbot.utils.logging import get_logger
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Protocol‑level constants (SCServo / Dynamixel v1)
+HDR_BYTE          = 0xFF
+HEADER            = bytes((HDR_BYTE, HDR_BYTE))
+
+PKT_ID            = 2          # index
+PKT_LENGTH        = 3
+PKT_INSTRUCTION     = 4
+PKT_ERROR         = 4
+PKT_PARAMETER0 = 5
+
+ID_BROADCAST_MAX  = 0xFD       # 0xFE=Broadcast, 0xFF=Reserved
+ERR_MASK_MAX      = 0x7F       # bits 7.. have other uses in some variants
+RXPACKET_MAX_LEN  = 250
+
+CORE_LEN          = 2          # ID + LEN
+ERR_LEN           = 1
+CHK_LEN           = 1
+MIN_FRAME_LEN     = len(HEADER) + CORE_LEN + ERR_LEN + CHK_LEN  # -> 6
 
 TXPACKET_MAX_LEN = 250
 RXPACKET_MAX_LEN = 250
-
-# for Protocol Packet
-PKT_HEADER0 = 0
-PKT_HEADER1 = 1
-PKT_ID = 2
-PKT_LENGTH = 3
-PKT_INSTRUCTION = 4
-PKT_ERROR = 4
-PKT_PARAMETER0 = 5
-
-# Protocol Error bit
-ERRBIT_VOLTAGE = 1
-ERRBIT_ANGLE = 2
-ERRBIT_OVERHEAT = 4
-ERRBIT_OVERELE = 8
-ERRBIT_OVERLOAD = 32
+# ──────────────────────────────────────────────────────────────────────────────
 
 
 class protocol_packet_handler(object):
@@ -28,8 +34,11 @@ class protocol_packet_handler(object):
         self.portHandler = portHandler
         self.scs_end = protocol_end
         self.CHAR_TIME_US = 10.0 * 1_000_000 / self.portHandler.baudrate  # 10 bits/char (example: 500000 baud --> 20us per byte)
-        self.IDLE_GAP_US = self.CHAR_TIME_US * 10                         # 2‑char idle gap (example: 500000 baud --> 40us)
-         
+
+        # TODO: Analyze this idle gap logic with a logic analyzer and confirm this is legit (find the right value)
+        self.IDLE_GAP_US = self.CHAR_TIME_US * 20                         # 2‑char idle gap (example: 500000 baud --> 40us)
+        self.log = get_logger(__name__)
+
     def scs_getend(self):
         return self.scs_end
 
@@ -132,8 +141,7 @@ class protocol_packet_handler(object):
             return COMM_TX_ERROR
 
         # make packet header
-        txpacket[PKT_HEADER0] = 0xFF
-        txpacket[PKT_HEADER1] = 0xFF
+        txpacket[0:2] = HEADER
 
         # add a checksum to the packet
         for idx in range(2, total_packet_length - 1):  # except header, checksum
@@ -153,65 +161,80 @@ class protocol_packet_handler(object):
         return COMM_SUCCESS
 
 
+
+
     def rxPacket(self):
-        rxpacket    = bytearray()
-        result      = COMM_TX_FAIL
-        wait_length = 6                      # HDR0 HDR1 ID LEN ERR CHK
-        last_byte_us = self.portHandler.getCurrentTime_us() # µs timestamp of last RX byte
-        first_byte_seen = False
+        """
+        Blocking receive‑and‑parse for a single status packet.
+        Returns (bytes(rx_packet), result_code)
+        """
+        rxpacket         = bytearray()
+        result           = None                         # CHANGED: clearer init
+        wait_length      = MIN_FRAME_LEN
+        last_byte_us     = self.portHandler.getCurrentTime_us()
+        first_byte_seen  = False
 
-        while True:
-            chunk = self.portHandler.readPort(wait_length - len(rxpacket))
-            if chunk:
-                rxpacket.extend(chunk)
-                last_byte_us = self.portHandler.getCurrentTime_us()           # reset idle timer
-                first_byte_seen = True
-            else:
-                # -------- GAP DETECTION --------
-                if first_byte_seen and self.portHandler.getCurrentTime_us() - last_byte_us > self.IDLE_GAP_US:
-                    # no byte for > 2 char times → frame ended early
-                    print("gap!")
-                    result = COMM_RX_CORRUPT
-                    break
-            # -------- FRAME‑ENOUGH TEST --------
-            if len(rxpacket) < wait_length:
-                if self.portHandler.isPacketTimeout():
-                    result = COMM_RX_TIMEOUT if not rxpacket else COMM_RX_CORRUPT
-                    break
-                continue
+        # mark port busy until we exit, even on exception
+        self.portHandler.is_using = True                # CHANGED: moved to top
+        try:
+            while True:
+                chunk = self.portHandler.readPort(wait_length - len(rxpacket))
+                if chunk:
+                    rxpacket.extend(chunk)
+                    last_byte_us    = self.portHandler.getCurrentTime_us()
+                    first_byte_seen = True
+                else:
+                    # ── GAP DETECTION ────────────────────────────────────────────
+                    if (first_byte_seen and
+                        self.portHandler.getCurrentTime_us() - last_byte_us
+                            > self.IDLE_GAP_US):
+                        self.log.debug("RX gap > idle threshold → abort")  # CHANGED: print→log
+                        result = COMM_RX_CORRUPT
+                        break
 
-            # we have at least the minimum header, ensure it starts at idx 0
-            if rxpacket[0:2] != b'\xFF\xFF':
-                # discard leading garbage and resync
-                del rxpacket[0]
-                first_byte_seen = False   
-                last_byte_us = self.portHandler.getCurrentTime_us()
-                wait_length = 6 
-                continue
+                # ── Have we read enough yet? ────────────────────────────────────
+                if len(rxpacket) < wait_length:
+                    if self.portHandler.isPacketTimeout():
+                        result = (COMM_RX_TIMEOUT if not rxpacket
+                                else COMM_RX_CORRUPT)
+                        break
+                    continue
 
-            # basic sanity of ID/LEN/ERR byte
-            if (rxpacket[PKT_ID] > 0xFD or
-                rxpacket[PKT_LENGTH] > RXPACKET_MAX_LEN or
-                rxpacket[PKT_ERROR]  > 0x7F):
-                del rxpacket[0]        # drop first 0xFF, resync next loop
-                print("resync!")
-                continue
+                # ── Ensure header alignment ─────────────────────────────────────
+                if rxpacket[:2] != HEADER:
+                    # discard until we realign on FF FF
+                    while len(rxpacket) >= 2 and rxpacket[:2] != HEADER:
+                        rxpacket.pop(0)
+                    first_byte_seen = False
+                    last_byte_us    = self.portHandler.getCurrentTime_us()
+                    wait_length     = MIN_FRAME_LEN
+                    continue
 
-            # adjust expected total length if needed
-            wait_length = rxpacket[PKT_LENGTH] + PKT_LENGTH + 1
-            if len(rxpacket) < wait_length:
-                continue
+                # ── Sanity‑check ID, LEN, ERR ──────────────────────────────────
+                pkt_len = rxpacket[PKT_LENGTH]
+                if (rxpacket[PKT_ID]    > ID_BROADCAST_MAX or
+                    pkt_len             > RXPACKET_MAX_LEN or
+                    rxpacket[PKT_ERROR] > ERR_MASK_MAX):
+                    self.log.debug("Header sane‑check failed → resync")
+                    rxpacket.pop(0)                      # drop first 0xFF
+                    first_byte_seen = False
+                    last_byte_us    = self.portHandler.getCurrentTime_us()
+                    wait_length     = MIN_FRAME_LEN
+                    continue
 
-            # ---------- CHECKSUM ----------
-            checksum = 0
-            for i in range(2, wait_length - 1):
-                checksum += rxpacket[i]
-            checksum = (~checksum) & 0xFF
+                # ── Recompute expected total length ────────────────────────────
+                wait_length = 4 + pkt_len               #  2*FF + ID + LEN + LEN bytes
+                if len(rxpacket) < wait_length:
+                    continue
 
-            result = COMM_SUCCESS if rxpacket[wait_length-1] == checksum else COMM_RX_CORRUPT
-            break   # frame handled (good or bad)
+                # ── CHECKSUM ────────────────────────────────────────────────────
+                checksum = (~sum(rxpacket[2:wait_length-1]) & 0xFF)
+                result   = (COMM_SUCCESS if rxpacket[wait_length-1] == checksum
+                            else COMM_RX_CORRUPT)
+                break                                            # done (good or bad)
+        finally:
+            self.portHandler.is_using = False
 
-        self.portHandler.is_using = False
         return bytes(rxpacket), result
 
 
@@ -232,6 +255,8 @@ class protocol_packet_handler(object):
         # set packet timeout
         if txpacket[PKT_INSTRUCTION] == INST_READ:
             self.portHandler.setPacketTimeout(txpacket[PKT_PARAMETER0 + 1] + 6)
+        elif txpacket[PKT_INSTRUCTION] == INST_WRITE and txpacket[PKT_PARAMETER0] < 32:  # EEPROM zone? Servo needs time to process
+            self.portHandler.setPacketTimeout(6, extra_us=100_000)
         else:
             self.portHandler.setPacketTimeout(6)  # HEADER0 HEADER1 ID LENGTH ERROR CHECKSUM
 

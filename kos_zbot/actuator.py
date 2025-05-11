@@ -205,6 +205,8 @@ class SCSMotorController:
             changes = []
 
             with self._control_lock:
+                time.sleep(0.002)
+
                 # Only configure if actuator is already registered
                 if actuator_id not in self.actuator_ids:
                     self.log.error(f"cannot configure unregistered actuator {actuator_id}")
@@ -304,7 +306,6 @@ class SCSMotorController:
                 os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
             except PermissionError:
                 self.log.warning("could not set real-time priority")
-                
         self.thread.start()
 
         
@@ -324,28 +325,31 @@ class SCSMotorController:
         PERIOD_NS   = int(self.period * 1e9)   # e.g. 20 000 000 ns
         SPIN_US     = 100                      # busy‑wait window (µs) – tune on your CPU
         SPIN_NS     = SPIN_US * 1_000
-        next_time   = time.monotonic_ns()
-
+       
         # pin to core 1
         os.sched_setaffinity(0, {1})
         allowed = os.sched_getaffinity(0)
         self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
         gc.set_threshold(700, 10, 5) # Increase the gen-2 requency to mitigate pileup ? TODO: investigate
-
+        
+        next_time = time.monotonic_ns()
         while self.running:
             # -- Perform Work --
             now_ns = time.monotonic_ns()
+
+            # ── CONFIG‑GRACE CHECK ──────────────────────────────
+            in_grace = (now_ns - self.last_config_time * 1e9) < (self.CONFIG_GRACE_PERIOD * 1e9)
             
-            if (now_ns - self.last_config_time*1e9) >= self.CONFIG_GRACE_PERIOD*1e9:
+            if not in_grace and self._control_lock.acquire(blocking=False):
                 try:
-                    with self._control_lock:
-                        if self.actuator_ids:
-                            self._write_positions()
-                            time.sleep(0.002)
-                            self._read_positions()
-                            
+                    if self.actuator_ids:
+                        self._write_positions()
+                        time.sleep(0.002)
+                        self._read_positions()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
+                finally:
+                    self._control_lock.release()
 
             # -- Schedule Next Tick --
             next_time += PERIOD_NS
@@ -364,13 +368,14 @@ class SCSMotorController:
             if over_ns > 0:
                 next_time = time.monotonic_ns()
 
-            over_us = over_ns / 1_000   # ns → µs
-            if   over_us > 5_000:
-                self.log.error(  f"hard overrun {over_us/1000:.2f} ms")
-            elif over_us > 2_000:
-                self.log.warning(f"overrun      {over_us/1000:.2f} ms")
-            elif over_us > 500:
-                self.log.debug(  f"minor jitter {over_us/1000:.2f} ms")
+            if not in_grace:
+                over_us = over_ns / 1_000   # ns → µs
+                if   over_us > 5_000:
+                    self.log.error(  f"hard overrun {over_us/1000:.2f} ms")
+                elif over_us > 2_000:
+                    self.log.warning(f"overrun      {over_us/1000:.2f} ms")
+                elif over_us > 500:
+                    self.log.debug(  f"minor jitter {over_us/1000:.2f} ms")
 
 
     def _get_params(self, actuator_id: int) -> dict:
@@ -436,9 +441,9 @@ class SCSMotorController:
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
-            self.log.error(f"group sync read error: {self.packet_handler.getTxRxResult(scs_comm_result)}")
+            self.log.error(f"GroupSyncRead: {self.packet_handler.getTxRxResult(scs_comm_result)}")
             for actuator_id in list(self.actuator_ids): 
-                self._record_fault(actuator_id, "groupsync read error")
+                self._record_fault(actuator_id, f"groupsync read: {self.packet_handler.getTxRxResult(scs_comm_result)}")
             return
                 
         # If group sync read succeeded, check individual servos
@@ -608,10 +613,11 @@ class SCSMotorController:
                 #print(f"Register {regAddr} written")
                 return True
             else:
-                self.log.error("failed to write register - retrying")
+                self.log.error(f"Write to ID: {actuator_id} Register: {regAddr} - {self.packet_handler.getTxRxResult(comm_result)} - retrying {retries} times: ")
                 retries -= 1
+            
         
-        self.log.error(f"failed to write register {regAddr} after all retries")
+        #self.log.error(f"failed to write register {regAddr} after all retries")
         return False  # Return False after all retries fail
 
     def writeReg(self, actuator_id, regAddr, value):
@@ -635,7 +641,7 @@ class SCSMotorController:
         if comm_result == 0:
             return True
 
-        self.log.error(f"failed to write register {regAddr} after all retries")
+        self.log.error(f"Write to ID: {actuator_id} Register: {regAddr} - {self.packet_handler.getTxRxResult(comm_result)}")
         return False
 
     def _get_model_name(self, model_number):
@@ -670,7 +676,7 @@ class SCSMotorController:
                                 
                             params[reg["name"]] = {"value": value, "addr": reg["addr"]}
                         else:
-                            self.log.error(f"failed to read {reg['name']} - {self.packet_handler.getTxRxResult(comm_result)}")
+                            self.log.error(f"Read ID: {actuator_id} Register: {reg['addr']} - {self.packet_handler.getTxRxResult(comm_result)}")
                             
                     except Exception as e:
                         self.log.error(f"error reading {reg['name']} (addr: {reg['addr']}): {str(e)}")

@@ -124,6 +124,10 @@ class SCSMotorController:
         self.last_error_time = {}  # Track when error count was last incremented
         self.fault_history = {}  # Track fault history
 
+        self._max_servo_cnt   = 20   # worst‑case number of IDs you’ll ever have
+        self._tx_buf          = bytearray(self._max_servo_cnt * 3)     # id, lo, hi
+        self._last_sent_pos   = {}            # id → counts  (keeps GC stable)
+
         time.sleep(1)
 
         available_actuators = self.scan_servos(range(11, 47))
@@ -327,6 +331,7 @@ class SCSMotorController:
         allowed = os.sched_getaffinity(0)
         self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
         gc.set_threshold(700, 10, 5) # Increase the gen-2 requency to mitigate pileup ? TODO: investigate
+
         while self.running:
             # -- Perform Work --
             now_ns = time.monotonic_ns()
@@ -335,8 +340,10 @@ class SCSMotorController:
                 try:
                     with self._control_lock:
                         if self.actuator_ids:
-                            self._read_positions()
                             self._write_positions()
+                            time.sleep(0.002)
+                            self._read_positions()
+                            
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
 
@@ -468,49 +475,54 @@ class SCSMotorController:
                 self._active_positions = inactive_positions
                 self._active_velocities = inactive_velocities
     
-
     def _write_positions(self):
-        """Write positions to all servos synchronously, honoring original semantics but updating params incrementally."""
-        # nothing to do if no torque‐enabled servos
+        """
+        Allocation‑free Sync‑WRITE.
+        • Builds the payload in a pre‑allocated bytearray (`self._tx_buf`)
+        • Sends a packet only if at least one position changed since the last TX
+        """
         if not self.torque_enabled_ids:
             return
 
-        # 1) Incorporate any newly‐queued batch of targets
+        # 1) Merge any newly queued target batch -------------------------------
         with self._target_positions_lock:
             if self.next_position_batch is not None:
                 self.last_commanded_positions.update(self.next_position_batch)
                 self.next_position_batch = None
 
-        # 2) Compute exactly which servos to command this tick
-        write_ids = sorted(self.torque_enabled_ids & self.commanded_ids)
+        write_ids = self.torque_enabled_ids & self.commanded_ids
+        if not write_ids:
+            return
 
-        # 3) Incrementally add/update any new or changed targets…
-        for aid in write_ids:
+        # 2) Serialise {id → counts} into the shared bytearray -----------------
+        buf_idx  = 0
+        changed  = False
+        for aid in sorted(write_ids):
             counts = self.last_commanded_positions.get(aid)
             if counts is None:
-                continue  # no valid target yet
+                continue
 
-            data = [
-                self.packet_handler.scs_lobyte(int(counts)),
-                self.packet_handler.scs_hibyte(int(counts)),
-            ]
+            # Detect duplicates so we can skip an unnecessary bus packet
+            if self._last_sent_pos.get(aid) != counts:
+                changed = True
+                self._last_sent_pos[aid] = counts
 
-            if aid in self.group_sync_write.data_dict:
-                # already present → update in place
-                self.group_sync_write.changeParam(aid, data)
-            else:
-                # new target → add to the sync‐write list
-                self.group_sync_write.addParam(aid, data)
+            self._tx_buf[buf_idx]     = aid
+            self._tx_buf[buf_idx + 1] = counts & 0xFF
+            self._tx_buf[buf_idx + 2] = (counts >> 8) & 0xFF
+            buf_idx += 3
 
-        # 4) Remove any servos that used to be commanded but no longer are
-        for old_id in list(self.group_sync_write.data_dict):
-            if old_id not in write_ids:
-                self.group_sync_write.removeParam(old_id)
+        if not changed:
+            return                                  # nothing new → no TX
 
-        # 5) Send exactly those commands
-        self.group_sync_write.txPacket()
-
-
+        # 3) Fire a Sync‑WRITE with *zero* extra allocations -------------------
+        #    param_length == number_of_bytes we’re sending (buf_idx)
+        self.packet_handler.syncWriteTxOnly(
+            SMS_STS_GOAL_POSITION_L,   # start address
+            2,                         # bytes per servo
+            memoryview(self._tx_buf)[:buf_idx],
+            buf_idx                    # param_length
+        )
 
     def _counts_to_degrees(self, counts: float, offset: float = 180.0) -> float:
         """Convert raw counts to degrees with optional offset"""

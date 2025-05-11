@@ -28,9 +28,7 @@ class protocol_packet_handler(object):
         self.portHandler = portHandler
         self.scs_end = protocol_end
         self.CHAR_TIME_US = 10.0 * 1_000_000 / self.portHandler.baudrate  # 10 bits/char (example: 500000 baud --> 20us per byte)
-        #self.IDLE_GAP_US = self.CHAR_TIME_US * 2                         # 2‑char idle gap (example: 500000 baud --> 40us)
-        self.IDLE_GAP_US = max(40 * self.CHAR_TIME_US, 5_000)
-        #self.IDLE_GAP_US  = max(150.0,  self.CHAR_TIME_US * 8)
+        self.IDLE_GAP_US = self.CHAR_TIME_US * 10                         # 2‑char idle gap (example: 500000 baud --> 40us)
          
     def scs_getend(self):
         return self.scs_end

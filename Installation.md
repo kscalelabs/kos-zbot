@@ -114,7 +114,7 @@ dtparam=spi=on
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 dtoverlay=i2c6,pins_22_23
-# Audio Devices 
+# Audio Devices; GPIO37 for Amp pull up, Left Channel
 dtparam=i2s=on
 dtparam=audio=on
 # Camera
@@ -139,6 +139,7 @@ dtoverlay=dwc2
 dtoverlay=googlevoicehat-soundcard
 # Audio Amplifier
 dtoverlay=max98357a
+gpio=26=op,dh
 ```
 
 ---

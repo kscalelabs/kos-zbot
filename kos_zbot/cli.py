@@ -133,8 +133,8 @@ def sync_wave():
             "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
             "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
         },
-        "kp": 20.0,
-        "kd": 5.0,
+        "kp": 12.0,
+        "kd": 2.0,
         "ki": 0.0,
         "max_torque": 100.0,
         "acceleration": 1000.0,
@@ -152,7 +152,7 @@ def sync_step():
     TEST_CONFIG = {
         "kos_ip": "127.0.0.1",
         "step_size": 4.0,
-        "step_hold_time": 0.02,
+        "step_hold_time": 0.2,
         "step_count": 100000,
         "start_pos": 0.0,
         "kp": 20.0,
@@ -161,7 +161,7 @@ def sync_step():
         "max_torque": 100.0,
         "acceleration": 1000.0,
         "torque_enabled": True,
-        "step_min": 1.0,
+        "step_min": 3.0,
         "step_max": 10.0,
         "max_total": 15.0,
         "seed": 42

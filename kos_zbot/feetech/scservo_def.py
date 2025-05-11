@@ -23,3 +23,11 @@ COMM_RX_WAITING = -5  # Now recieving status packet
 COMM_RX_TIMEOUT = -6  # There is no status packet
 COMM_RX_CORRUPT = -7  # Incorrect status packet
 COMM_NOT_AVAILABLE = -9  #
+
+
+# Protocol Error bit
+ERRBIT_VOLTAGE = 1
+ERRBIT_ANGLE = 2
+ERRBIT_OVERHEAT = 4
+ERRBIT_OVERELE = 8
+ERRBIT_OVERLOAD = 32

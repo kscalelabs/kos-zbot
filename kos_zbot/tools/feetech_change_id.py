@@ -2,7 +2,7 @@ import argparse
 import sys
 import time
 from kos_zbot.actuator import SCSMotorController
-from kos_zbot.scservo_sdk.sms_sts import SMS_STS_ID
+from kos_zbot.feetech.sms_sts import SMS_STS_ID
 import logging
 logging.basicConfig(level=logging.INFO)
 

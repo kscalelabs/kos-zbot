@@ -130,7 +130,7 @@ class SCSMotorController:
 
         time.sleep(1)
 
-        available_actuators = self.scan_servos(range(11, 47))
+        available_actuators = self.scan_servos(range(0, 254))
         self.log.info(f"{len(available_actuators)} actuators found")
 
         if not available_actuators:

@@ -2,23 +2,23 @@
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Python Environment Setup](#python-environment-setup)
-3. [KOS Python Package Build](#kos-python-package-build)
-4. [Raspberry Pi System Configuration](#raspberry-pi-system-configuration)
+- [KOS Pi Installation \& Configuration Guide](#kos-pi-installation--configuration-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Prerequisites](#prerequisites)
+  - [Python Environment Setup](#python-environment-setup)
+  - [Raspberry Pi System Configuration](#raspberry-pi-system-configuration)
     - [Realtime Python Capability](#realtime-python-capability)
     - [Add User Permissions](#add-user-permissions)
-    - [/boot/firmware/config.txt](#bootfirmwareconfigtxt)
+    - [`/boot/firmware/config.txt`](#bootfirmwareconfigtxt)
     - [Ethernet Gadget Mode](#ethernet-gadget-mode)
     - [Static IP for USB Gadget](#static-ip-for-usb-gadget)
     - [DHCP for USB Gadget](#dhcp-for-usb-gadget)
-    - [Edit /etc/motd](#edit-etc-motd)
+    - [Edit `/etc/motd` (Message of the Day)](#edit-etcmotd-message-of-the-day)
+  - [Customize your login banner by editing `/etc/motd`:](#customize-your-login-banner-by-editing-etcmotd)
     - [WiFi Setup](#wifi-setup)
-    - [Speaker & Microphone (I2S)](#speaker--microphone-i2s)
-5. [IMU Configuration](#imu-configuration)
-6. [Performance & Latency Testing](#performance--latency-testing)
-7. [Servo Communication Protocol](#servo-communication-protocol)
-8. [Servo Register Maps](#servo-register-maps)
+    - [Speaker \& Microphone (I2S)](#speaker--microphone-i2s)
+    - [Camera](#camera)
+    - [Display (SPI)](#display-spi)
 
 ---
 
@@ -233,12 +233,34 @@ sudo nmcli device wifi connect "SSID" password "PASSWORD"
 ### Speaker & Microphone (I2S)
 
 - Ensure the correct overlays are set in `/boot/firmware/config.txt` (see above).
+- Playback should now be bound to _"Google voiceHat soundcard"_ __sndrpigooglevoi__  for both input and output. Verify this option is available with `aplay -l`
 - Test playback with:
     ```bash
-    aplay -D hw:3,0 filename.wav
+    aplay -D hw:sndrpigooglevoi filename.wav
     ```
-- You will generally have to provide a `.wav` file through `scp`
+- You may define a more intuitive device name using a `asound.conf` file:
+    ```bash
+    sudo tee /etc/asound.conf > /dev/null << EOF
+    # Mic and Speaker, named 'zbot'
+    pcm.zbot {
+    type plug
+        slave {
+        pcm "plughw:sndrpigooglevoi,0"
+        }
+    }
 
+    ctl.zbot {
+        type hw
+        card sndrpigooglevoi
+    }
+    EOF
+    ```
+    - This will now allow for running `aplay` and `arecord` with `-D zbot` argument.
+    - _Note that attempting to set it as a `!default` device generally appears to fail (possibly to do with conflicts with pulseaudio?)_
+
+
+
+### Camera
 
 Enable Camera via raspi-config
 

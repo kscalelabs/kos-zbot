@@ -114,7 +114,7 @@ dtparam=spi=on
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 dtoverlay=i2c6,pins_22_23
-# Audio Devices; GPIO37 for Amp pull up, Left Channel
+# Audio Devices
 dtparam=i2s=on
 dtparam=audio=on
 # Camera
@@ -135,11 +135,15 @@ arm_boost=1
 [all]
 # Gadget Mode
 dtoverlay=dwc2
-# 
-dtoverlay=googlevoicehat-soundcard
-# Audio Amplifier
+# Audio Amplifier. Pin 37 for Amp pull up, Left Channel
 dtoverlay=max98357a
 gpio=26=op,dh
+# Microphone, Pin 18 for Mic pull up, Right Channel, Pin 16 for Mic Vin. Requires Y Split for BCLK + LRCLK to follow same I2S as Audio Amp
+dtoverlay=googlevoicehat-soundcard
+gpio=24=op,dh
+gpio=23=op,dh
+# Display, Pin 11 for Backlight pull up
+gpio=17=op,dh
 ```
 
 ---

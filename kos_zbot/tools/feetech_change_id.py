@@ -2,7 +2,6 @@ import argparse
 import sys
 import time
 from kos_zbot.actuator import SCSMotorController
-from kos_zbot.feetech.sms_sts import SMS_STS_ID
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -10,8 +9,8 @@ def main():
     parser = argparse.ArgumentParser(description='Change ID for a Feetech servo on the bus')
     parser.add_argument('--device', type=str, default='/dev/ttyAMA5',
                         help='Serial port device (default: /dev/ttyAMA5)')
-    parser.add_argument('--baudrate', type=int, default=500000,
-                        help='Baudrate for communication (default: 500000)')
+    parser.add_argument('--baudrate', type=int, default=1000000,
+                        help='Baudrate for communication (default: 1000000)')
     parser.add_argument('--current-id', type=int, required=True,
                         help='Current ID of the servo (required)')
     parser.add_argument('--new-id', type=int, required=True,
@@ -31,12 +30,9 @@ def main():
             rate=10
         )
 
-        time.sleep(2)  # Brief pause to ensure serial connection is stable
+        time.sleep(2)  # Brief pause to ensure serial connection is established TODO: necessary?
 
-        print(f"\nChanging servo ID from {args.current_id} to {args.new_id}...")
-        # Write new ID
-        success = controller.writeReg_Verify(args.current_id, SMS_STS_ID, args.new_id)
-        time.sleep(0.01)
+        success = controller.change_id(args.current_id, args.new_id)
 
         if success:
             print(f"\nSuccessfully changed servo ID from {args.current_id} to {args.new_id}.")
@@ -45,10 +41,10 @@ def main():
 
     except Exception as e:
         print(f"Error: {e}")
-        sys.exit(1)
     finally:
         if 'controller' in locals():
             controller.stop()
+            
 
 if __name__ == '__main__':
     main()

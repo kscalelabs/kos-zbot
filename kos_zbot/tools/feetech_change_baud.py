@@ -15,19 +15,10 @@ def main():
                         help='Current baudrate for communication (default: 500000)')
     parser.add_argument('--new-baudrate', type=int, required=True,
                         help='New baudrate to set (required, e.g. 1000000, 500000, 250000)')
-    #parser.add_argument('--start-id', type=int, default=11,
-    #                    help='Start ID for scanning (default: 1)')
-    #parser.add_argument('--end-id', type=int, default=46,
-    #                    help='End ID for scanning (default: 255)')
 
     args = parser.parse_args()
 
     try:
-        # Validate ID range
-        #if not 0 <= args.start_id <= args.end_id <= 255:
-        #    print("Error: ID range must be between 0 and 255")
-        #    sys.exit(1)
-
         # Validate new baudrate
         if args.new_baudrate not in (1000000, 500000, 250000):
             print("Error: new-baudrate must be one of: 1000000, 500000, 250000")

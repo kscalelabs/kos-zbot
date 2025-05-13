@@ -845,3 +845,38 @@ class SCSMotorController:
                 time.sleep(0.01)
 
         return success
+
+
+    def change_id(self, current_id: int, new_id: int) -> bool:
+        """
+        Change the ID of a servo on the bus.
+        
+        Args:
+            current_id: Current ID of the servo (0-253)
+            new_id: New ID to set for the servo (0-253)
+        Returns:
+            True if the ID change was successful
+        """
+        if not (0 <= current_id <= 253 and 0 <= new_id <= 253):
+            self.log.error("IDs must be between 0 and 253")
+            return False
+
+        self.log.info(f"Changing servo ID from {current_id} to {new_id}")
+        success = True
+
+        with self._control_lock:
+            # unlock EEPROM
+            self._unlockEEPROM(current_id)
+            time.sleep(0.01)
+
+            # write new ID
+            if not self.writeReg_Verify(current_id, SMS_STS_ID, new_id):
+                self.log.error(f"Failed to write new ID {new_id} to servo {current_id}")
+                success = False
+
+            time.sleep(0.01)
+            # lock EEPROM again
+            self._lockEEPROM(current_id)
+            time.sleep(0.01)
+
+        return success

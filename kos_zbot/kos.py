@@ -10,9 +10,12 @@ from kos_protos import (
     common_pb2,
     imu_pb2,
     imu_pb2_grpc,
+    process_manager_pb2, 
+    process_manager_pb2_grpc
 )
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
+from kos_zbot.policy import PolicyManager
 import logging
 import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
@@ -330,11 +333,40 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         # The BNO055 handles its own zeroing/calibration, so this is a no-op
         return common_pb2.ActionResponse(success=True)
 
+class ProcessManagerService(process_manager_pb2_grpc.ProcessManagerServiceServicer): #TODO: Just a PoC, need to add proper service api in kos 
+    def __init__(self, policy_manager: PolicyManager):
+        super().__init__()
+        self.policy_manager = policy_manager
+        self.log = get_logger(__name__)
+
+    async def StartKClip(self, request: process_manager_pb2.KClipStartRequest, context):
+        """Start policy deployment."""
+        try:
+            success = await self.policy_manager.start_policy(request.action)
+            # Create response without success field since it's not in the proto definition
+            return process_manager_pb2.KClipStartResponse()
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return process_manager_pb2.KClipStartResponse()
+
+    async def StopKClip(self, request: empty_pb2.Empty, context):
+        """Stop policy deployment."""
+        try:
+            success = await self.policy_manager.stop_policy()
+            # Create response without success field since it's not in the proto definition
+            return process_manager_pb2.KClipStopResponse()
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return process_manager_pb2.KClipStopResponse()
 
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
     log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
+
+    # Initialize hardware
     try:
         actuator_controller = SCSMotorController(
             device="/dev/ttyAMA5", baudrate=1000000, rate=50
@@ -342,8 +374,13 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         actuator_controller.start()
     except NoActuatorsFoundError as e:
         sys.exit(1)
+
     imu_manager = BNO055Manager(update_rate=100)
     imu_manager.start()
+
+    # Initialize policy manager
+    policy_manager = PolicyManager(actuator_controller, imu_manager)
+
     stop_event = asyncio.Event()
 
     def handle_signal():
@@ -363,10 +400,16 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         imu_service = IMUService(imu_manager)
         imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
+        process_manager_service = ProcessManagerService(policy_manager)
+        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server(
+            process_manager_service, server
+        )
+
         server.add_insecure_port(f"{host}:{port}")
         await server.start()
         log.info(f"KOS ZBot service started on {host}:{port}")
         await stop_event.wait()
+        await policy_manager.stop_policy()
         await server.stop(1)
         log.info("KOS ZBot service stopped")
     finally:

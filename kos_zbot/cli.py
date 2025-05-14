@@ -7,13 +7,17 @@ from kos_zbot.tools.actuator_dump import actuator_dump
 from kos_zbot.tools.actuator_move import actuator_move
 from kos_zbot.tools.actuator_torque import actuator_torque
 from kos_zbot.tools.actuator_zero import actuator_zero
+from kos_zbot.tools.policy_run import policy_start, policy_stop
 from google.protobuf.json_format import MessageToDict
 
 
 class MainGroup(click.Group):
     def list_commands(self, ctx):
-        return ['service', 'status', 'actuator', 'test']
+        return ['service', 'policy', 'status', 'actuator', 'test']
 
+class PolicyGroup(click.Group):
+    def list_commands(self, ctx):
+        return ['start', 'stop']
 
 class ActuatorGroup(click.Group):
     def list_commands(self, ctx):
@@ -40,6 +44,41 @@ def service():
     """Start the KOS service."""
     from kos_zbot.kos import main as service_main
     service_main()
+
+
+class PolicyGroup(click.Group):
+    def list_commands(self, ctx):
+        return ['start', 'stop']
+
+
+@cli.group(
+    'policy',
+    cls=PolicyGroup,
+    help="Policy deployment operations."
+)
+def policy():
+    """Commands for managing policy deployment."""
+    pass
+
+
+@policy.command()
+@click.argument('policy_file', type=click.Path(exists=True))
+@click.option(
+    '--episode-length', type=float, default=30.0, show_default=True,
+    help='Episode length in seconds'
+)
+@click.option(
+    '--action-scale', type=float, default=0.1, show_default=True,
+    help='Scale factor for model outputs (0.0 to 1.0)'
+)
+def start(policy_file, episode_length, action_scale):
+    """Start policy deployment."""
+    asyncio.run(policy_start(policy_file, episode_length, action_scale))
+
+@policy.command()
+def stop():
+    """Stop policy deployment."""
+    asyncio.run(policy_stop())
 
 
 @cli.command()
@@ -128,10 +167,10 @@ def sync_wave():
         "start_pos": 0.0,
         "sync_all": False,
         "wave_patterns": {
-            "group_1": {"actuators": [11,12,13,14], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "group_2": {"actuators": [21,22,23,24], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 90.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
-            "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 10.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_1": {"actuators": [11,12,13,14], "amplitude": 3.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_2": {"actuators": [21,22,23,24], "amplitude": 3.0, "frequency": 0.75, "phase_offset": 90.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_3": {"actuators": [31,32,33,34,35,36], "amplitude": 3.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
+            "group_4": {"actuators": [41,42,43,44,45,46], "amplitude": 3.0, "frequency": 0.75, "phase_offset": 0.0, "freq_multiplier": 1.0, "start_pos": 0.0, "position_offset": 0.0},
         },
         "kp": 12.0,
         "kd": 2.0,

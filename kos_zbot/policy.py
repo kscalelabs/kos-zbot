@@ -11,16 +11,19 @@ from kos_zbot.imu import BNO055Manager
 class PolicyManager:
     def __init__(self, actuator_controller: SCSMotorController, imu_manager: BNO055Manager):
         self.log = get_logger(__name__)
+        self.running = False
         self.actuator_controller = actuator_controller
         self.imu_manager = imu_manager
         self.model_provider = ModelProvider(actuator_controller, imu_manager)
         self.model_runner = None
         self.carry = None
-        self.stop_event = asyncio.Event()
-        self.running = False
-        self.task = None
+
         self.episode_length = 30.0  # Default episode length in seconds TODO: Move elsewhere, config file?
         self.action_scale = 0.1     # Default action scale
+
+        self.stop_event = asyncio.Event()
+        self.task = None
+       
 
     async def start_policy(self, policy_file: str, episode_length: float = 30.0, action_scale: float = 0.3):
         """Start policy deployment."""
@@ -125,13 +128,12 @@ class PolicyManager:
 
                 # Clear arrays for this iteration
                 self.model_provider.arrays.clear()
-                
                 # Run one step of the model
                 output, self.carry = self.model_runner.step(self.carry)
                 
                 # Apply the output to the actuators
-                self.model_provider.take_action(self.model_provider.joint_names, output)
-                
+                self.model_runner.take_action(output)
+
                 # Calculate time to sleep until next deadline
                 now = loop.time()
                 sleep_time = deadline - now

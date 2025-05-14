@@ -127,28 +127,28 @@ class ModelProvider(ModelProviderABC):
         # Store actuator metadata
         self.actuator_metadata = {
             # Left arm
-            "left_shoulder_pitch": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -90.0, "max": 180.0},
-            "left_shoulder_roll": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -20.0, "max": 180.0},
+            "left_shoulder_pitch": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -90.0, "max": 180.0}, 
+            "left_shoulder_roll": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -18.0, "max": 180.0},
             "left_elbow_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -80.0, "max": 90.0},
-            "left_gripper_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -20.0, "max": 20.0},
+            "left_gripper_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -28.0, "max": 38.0},
             # Right arm
             "right_shoulder_pitch": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -180.0, "max": 90.0},
-            "right_shoulder_roll": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -190.0, "max": 20.0},
+            "right_shoulder_roll": {"actuator_type": "feetech_sts3250", "kp": 16.0, "kd": 3.0, "min": -180.0, "max": 18.0},
             "right_elbow_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -90.0, "max": 80.0},
-            "right_gripper_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -20.0, "max": 20.0},
+            "right_gripper_roll": {"actuator_type": "feetech_sts3215_12v", "kp": 16.0, "kd": 3.0, "min": -38.0, "max": 28.0},
             # Left leg
-            "left_hip_yaw": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -90.0, "max": 90.0},
+            "left_hip_yaw": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -100.0, "max": 100.0},
             "left_hip_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -35.0, "max": 35.0},
-            "left_hip_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -128.0, "max": 50.0},
+            "left_hip_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -120.0, "max": 55.0},
             "left_knee_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -130, "max": 100.0},
-            "left_ankle_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -30.0, "max": 30.0},
+            "left_ankle_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -35.0, "max": 35.0},
             "left_ankle_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -90.0, "max": 35.0},
             # Right leg
-            "right_hip_yaw": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -90.0, "max": 90.0},
+            "right_hip_yaw": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -100.0, "max": 100.0},
             "right_hip_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -35.0, "max": 35.0},
-            "right_hip_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -128.0, "max": 50.0},
+            "right_hip_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -120.0, "max": 55.0},
             "right_knee_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -130, "max": 100.0},
-            "right_ankle_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -30.0, "max": 30.0},
+            "right_ankle_roll": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -35.0, "max": 35.0},
             "right_ankle_pitch": {"actuator_type": "feetech_sts3250", "kp": 22.0, "kd": 8.0, "min": -90.0, "max": 35.0}
         }
 

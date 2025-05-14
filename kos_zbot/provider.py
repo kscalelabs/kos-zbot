@@ -94,6 +94,30 @@ class ModelProvider(ModelProviderABC):
             "right_elbow_roll",    #ctrl[18]
             "right_gripper_roll",  #ctrl[19]
         ]
+
+        self.TRAINED_JOINT_ORDER = [
+            "left_shoulder_pitch",
+            "left_shoulder_roll",
+            "left_elbow_roll",
+            "left_gripper_roll",
+            "right_shoulder_pitch",
+            "right_shoulder_roll",
+            "right_elbow_roll",
+            "right_gripper_roll",
+            "left_hip_pitch",
+            "left_hip_roll",
+            "left_hip_yaw",
+            "left_knee_pitch",
+            "left_ankle_pitch",
+            "left_ankle_roll",
+            "right_hip_pitch",
+            "right_hip_roll",
+            "right_hip_yaw",
+            "right_knee_pitch",
+            "right_ankle_pitch",
+            "right_ankle_roll",
+        ]
+
         
         # Map joint names to actuator IDs and metadata
         self.joint_to_actuator = {
@@ -123,6 +147,54 @@ class ModelProvider(ModelProviderABC):
             "right_ankle_roll" :45,
             "right_ankle_pitch":46,
         }
+
+        self.remapped_joint_to_actuator = {
+            "right_hip_yaw":        11,  # ← left_shoulder_pitch
+            "right_hip_roll":       12,  # ← left_shoulder_roll
+            "right_hip_pitch":      13,  # ← left_elbow_roll
+            "right_knee_pitch":     14,  # ← left_gripper_roll
+            "right_ankle_pitch":    21,  # ← right_shoulder_pitch
+            "right_ankle_roll":     22,  # ← right_shoulder_roll
+            "left_hip_yaw":         23,  # ← right_elbow_roll
+            "left_hip_roll":        24,  # ← right_gripper_roll
+            "left_hip_pitch":       33,  # ← left_hip_pitch
+            "left_knee_pitch":      32,  # ← left_hip_roll
+            "left_ankle_pitch":     31,  # ← left_hip_yaw
+            "left_ankle_roll":      34,  # ← left_knee_pitch
+            "left_shoulder_pitch":  36,  # ← left_ankle_pitch
+            "left_shoulder_roll":   35,  # ← left_ankle_roll
+            "left_elbow_roll":      43,  # ← right_hip_pitch
+            "left_gripper_roll":    42,  # ← right_hip_roll
+            "right_shoulder_pitch": 46,  # ← right_ankle_pitch
+            "right_shoulder_roll":  45,  # ← right_ankle_roll
+            "right_elbow_roll":     31,  # ← left_hip_yaw
+            "right_gripper_roll":   32,  # ← left_hip_roll
+        }
+
+        self.remapped_joint_to_actuator_2 = {
+            "left_shoulder_pitch": 41,  # ← right_hip_yaw
+            "left_shoulder_roll":  42,  # ← right_hip_roll
+            "left_elbow_roll":     43,  # ← right_hip_pitch
+            "left_gripper_roll":   44,  # ← right_knee_pitch
+            "right_shoulder_pitch":46,  # ← right_ankle_pitch
+            "right_shoulder_roll": 45,  # ← right_ankle_roll
+            "right_elbow_roll":    31,  # ← left_hip_yaw
+            "right_gripper_roll":  32,  # ← left_hip_roll
+            "left_hip_pitch":      33,  # ← left_hip_pitch
+            "left_hip_roll":       34,  # ← left_knee_pitch
+            "left_hip_yaw":        36,  # ← left_ankle_pitch
+            "left_knee_pitch":     35,  # ← left_ankle_roll
+            "left_ankle_pitch":    11,  # ← left_shoulder_pitch
+            "left_ankle_roll":     12,  # ← left_shoulder_roll
+            "right_hip_pitch":     13,  # ← left_elbow_roll
+            "right_hip_roll":      14,  # ← left_gripper_roll
+            "right_hip_yaw":       21,  # ← right_shoulder_pitch
+            "right_knee_pitch":    22,  # ← right_shoulder_roll
+            "right_ankle_pitch":   23,  # ← right_elbow_roll
+            "right_ankle_roll":    24,  # ← right_gripper_roll
+        }
+
+
 
         # Store actuator metadata
         self.actuator_metadata = {
@@ -155,6 +227,7 @@ class ModelProvider(ModelProviderABC):
     def get_joint_angles(self, joint_names: Sequence[str]) -> np.ndarray:
         """Get current joint angles from actuators in radians."""
         angles = []
+        #joint_names = self.TRAINED_JOINT_ORDER
         for name in joint_names:
             self.log.info(f"Getting joint angle for {name}")
             actuator_id = self.joint_to_actuator[name]
@@ -173,6 +246,7 @@ class ModelProvider(ModelProviderABC):
     def get_joint_angular_velocities(self, joint_names: Sequence[str]) -> np.ndarray:
         """Get current joint velocities from actuators."""
         velocities = []
+        #joint_names = self.TRAINED_JOINT_ORDER
         for name in joint_names:
             actuator_id = self.joint_to_actuator[name]
             velocity = self.actuator_controller.get_velocity(actuator_id)
@@ -231,14 +305,15 @@ class ModelProvider(ModelProviderABC):
 
     def take_action(self, joint_names: Sequence[str], action: np.ndarray) -> None:
         """Send scaled position commands to actuators."""
+        #joint_names = self.TRAINED_JOINT_ORDER
         assert action.shape == (len(joint_names),)
         self.arrays["action"] = action
         #self.log.info(f"Received action: {action}")
         # Create position commands for each actuator
         position_commands = {}
         for i, name in enumerate(joint_names):
-            actuator_id = self.joint_to_actuator[name]
-            if name not in self.joint_to_actuator:
+            actuator_id = self.remapped_joint_to_actuator[name]
+            if name not in self.remapped_joint_to_actuator:
                 self.log.error(f"take_action: Invalid joint name: {name}")
                 continue
             #self.log.info(f"Actuator ID: {actuator_id} for joint: {name}")

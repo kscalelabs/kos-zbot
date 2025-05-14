@@ -11,7 +11,7 @@ setup(
     install_requires=[
         'pyserial==3.5',
         'grpcio',
-        'pykos>=0.7.8',
+        'pykos>=0.7.9',
         'adafruit-circuitpython-bno055',
         'psutil',
         'tabulate',

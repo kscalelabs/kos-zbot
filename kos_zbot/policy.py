@@ -20,13 +20,20 @@ class PolicyManager:
 
         self.episode_length = 30.0  # Default episode length in seconds TODO: Move elsewhere, config file?
         self.action_scale = 0.1     # Default action scale
-
+     
         self.stop_event = asyncio.Event()
         self.task = None
-       
+       #TODO: Work on state feedback (this is a placeholder)
+        self.state = {
+            "status": "idle",
+            "policy_file": "none",
+            "action_scale": str(self.action_scale),
+            "episode_length": str(self.episode_length),
+            "dry_run": "false"
+        }
 
-    async def start_policy(self, policy_file: str, episode_length: float = 30.0, action_scale: float = 0.3):
-        """Start policy deployment."""
+    async def start_policy(self, policy_file: str, action_scale: float, episode_length: int, dry_run: bool):
+        """Start policy execution with the given parameters."""
         if self.running:
             self.log.warning("Policy already running")
             return False
@@ -35,6 +42,16 @@ class PolicyManager:
             self.log.error(f"Policy file not found: {policy_file}")
             return False
 
+        #TODO: Work on state feedback (this is a placeholder)
+        # Update state with policy parameters
+        self.state = {
+            "policy_file": policy_file,
+            "action_scale": str(action_scale),
+            "episode_length": str(episode_length),
+            "dry_run": str(dry_run).lower(),
+            "status": "running"
+        }
+        
         try:
             # Store parameters
             self.episode_length = episode_length
@@ -108,6 +125,18 @@ class PolicyManager:
         self.model_runner = None
         self.carry = None
         return True
+
+    async def get_state(self):
+        """Get the current policy state."""
+        if not self.running:
+            return {
+                "status": "stopped",
+                "policy_file": "none",
+                "action_scale": str(self.action_scale),
+                "episode_length": str(self.episode_length),
+                "dry_run": "false"
+            }
+        return self.state
 
     async def _run_policy(self):
         """Main policy execution loop with deadline-based timing."""

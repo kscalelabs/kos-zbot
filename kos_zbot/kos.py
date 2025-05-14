@@ -10,8 +10,8 @@ from kos_protos import (
     common_pb2,
     imu_pb2,
     imu_pb2_grpc,
-    process_manager_pb2, 
-    process_manager_pb2_grpc
+    policy_pb2,
+    policy_pb2_grpc,
 )
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
@@ -333,33 +333,48 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         # The BNO055 handles its own zeroing/calibration, so this is a no-op
         return common_pb2.ActionResponse(success=True)
 
-class ProcessManagerService(process_manager_pb2_grpc.ProcessManagerServiceServicer): #TODO: Just a PoC, need to add proper service api in kos 
+class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
     def __init__(self, policy_manager: PolicyManager):
         super().__init__()
         self.policy_manager = policy_manager
         self.log = get_logger(__name__)
 
-    async def StartKClip(self, request: process_manager_pb2.KClipStartRequest, context):
+    async def StartPolicy(self, request: policy_pb2.StartPolicyRequest, context):
         """Start policy deployment."""
         try:
-            success = await self.policy_manager.start_policy(request.action)
-            # Create response without success field since it's not in the proto definition
-            return process_manager_pb2.KClipStartResponse()
+            success = await self.policy_manager.start_policy(
+                policy_file=request.action,
+                action_scale=request.action_scale,
+                episode_length=request.episode_length,
+                dry_run=request.dry_run
+            )
+            return policy_pb2.StartPolicyResponse()
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return process_manager_pb2.KClipStartResponse()
+            return policy_pb2.StartPolicyResponse()
 
-    async def StopKClip(self, request: empty_pb2.Empty, context):
+    async def StopPolicy(self, request: empty_pb2.Empty, context):
         """Stop policy deployment."""
         try:
             success = await self.policy_manager.stop_policy()
-            # Create response without success field since it's not in the proto definition
-            return process_manager_pb2.KClipStopResponse()
+            return policy_pb2.StopPolicyResponse()
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
-            return process_manager_pb2.KClipStopResponse()
+            return policy_pb2.StopPolicyResponse()
+
+    async def GetState(self, request: empty_pb2.Empty, context):
+        """Get current policy state."""
+        try:
+            state = await self.policy_manager.get_state()
+            # Ensure all values are strings
+            string_state = {k: str(v) for k, v in state.items()}
+            return policy_pb2.GetStateResponse(state=string_state)
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return policy_pb2.GetStateResponse()
 
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
@@ -400,9 +415,9 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         imu_service = IMUService(imu_manager)
         imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
-        process_manager_service = ProcessManagerService(policy_manager)
-        process_manager_pb2_grpc.add_ProcessManagerServiceServicer_to_server(
-            process_manager_service, server
+        policy_service = PolicyService(policy_manager)
+        policy_pb2_grpc.add_PolicyServiceServicer_to_server(
+            policy_service, server
         )
 
         server.add_insecure_port(f"{host}:{port}")

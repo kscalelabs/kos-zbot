@@ -7,7 +7,7 @@ from kos_zbot.tools.actuator_dump import actuator_dump
 from kos_zbot.tools.actuator_move import actuator_move
 from kos_zbot.tools.actuator_torque import actuator_torque
 from kos_zbot.tools.actuator_zero import actuator_zero
-from kos_zbot.tools.policy_run import policy_start, policy_stop
+from kos_zbot.tools.policy_run import policy_start, policy_stop, get_policy_state
 from google.protobuf.json_format import MessageToDict
 
 
@@ -17,7 +17,7 @@ class MainGroup(click.Group):
 
 class PolicyGroup(click.Group):
     def list_commands(self, ctx):
-        return ['start', 'stop']
+        return ['start', 'stop', 'status']
 
 class ActuatorGroup(click.Group):
     def list_commands(self, ctx):
@@ -46,10 +46,6 @@ def service():
     service_main()
 
 
-class PolicyGroup(click.Group):
-    def list_commands(self, ctx):
-        return ['start', 'stop']
-
 
 @cli.group(
     'policy',
@@ -71,14 +67,33 @@ def policy():
     '--action-scale', type=float, default=0.1, show_default=True,
     help='Scale factor for model outputs (0.0 to 1.0)'
 )
-def start(policy_file, episode_length, action_scale):
+@click.option(
+    '--dry-run', is_flag=True, help="Run policy in dry-run mode (no actuators will be moved)"
+)
+def start(policy_file, episode_length, action_scale, dry_run):
     """Start policy deployment."""
-    asyncio.run(policy_start(policy_file, episode_length, action_scale))
+    asyncio.run(policy_start(policy_file, episode_length, action_scale, dry_run))
 
 @policy.command()
 def stop():
     """Stop policy deployment."""
     asyncio.run(policy_stop())
+
+@policy.command()
+def status():
+    """Get current policy state."""
+    state = asyncio.run(get_policy_state())
+    if state is None:
+        click.echo("Failed to get policy state")
+        return
+    
+    # Format the state nicely
+    if state.state:
+        click.echo("Policy State:")
+        for key, value in state.state.items():
+            click.echo(f"  {key}: {value}")
+    else:
+        click.echo("No policy state available")
 
 
 @cli.command()

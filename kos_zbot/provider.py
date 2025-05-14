@@ -69,31 +69,30 @@ class ModelProvider(ModelProviderABC):
         #----------------- THE FOLLOWING SECTION IS TEMPORARY, DO NOT JUDGE ME -----------------
         # TODO: Load this from MJCF model (figure out how to support using kos with and without this metadata, perhaps error message if user hasn't loadded urdf for their bot)
         # Define joint names in the same order as the model expects
+
+
+        ## Just for reference, this is based on actual mujoco id mapping as it stands today
         self.joint_names = [
-            # Left arm
-            "left_shoulder_pitch",
-            "left_shoulder_roll",
-            "left_elbow_roll",
-            "left_gripper_roll",
-            # Right arm
-            "right_shoulder_pitch",
-            "right_shoulder_roll",
-            "right_elbow_roll",
-            "right_gripper_roll",
-            # Left leg
-            "left_hip_yaw",
-            "left_hip_roll",
-            "left_hip_pitch",
-            "left_knee_pitch",
-            "left_ankle_roll",
-            "left_ankle_pitch",
-            # Right leg
-            "right_hip_yaw",
-            "right_hip_roll",
-            "right_hip_pitch",
-            "right_knee_pitch",
-            "right_ankle_roll",
-            "right_ankle_pitch"
+            "right_hip_yaw",      # ctrl[0]
+            "right_hip_roll",     # ctrl[1]
+            "right_hip_pitch",    # ctrl[2]
+            "right_knee_pitch",   # ctrl[3]
+            "right_ankle_pitch",  # ctrl[4]
+            "right_ankle_roll",   # ctrl[5]
+            "left_hip_yaw",       # ctrl[6]
+            "left_hip_roll",      # ctrl[7]
+            "left_hip_pitch",     # ctrl[8]
+            "left_knee_pitch",    # ctrl[9]
+            "left_ankle_pitch",   # ctrl[10]
+            "left_ankle_roll",    # ctrl[11]
+            "left_shoulder_pitch",# ctrl[12]
+            "left_shoulder_roll", # ctrl[13]
+            "left_elbow_roll",    # ctrl[14]
+            "left_gripper_roll",  # ctrl[15]
+            "right_shoulder_pitch",#ctrl[16]
+            "right_shoulder_roll", #ctrl[17]
+            "right_elbow_roll",    #ctrl[18]
+            "right_gripper_roll",  #ctrl[19]
         ]
         
         # Map joint names to actuator IDs and metadata
@@ -109,19 +108,20 @@ class ModelProvider(ModelProviderABC):
             "right_elbow_roll": 23,
             "right_gripper_roll": 24,
             # Left leg
-            "left_hip_yaw": 31,
-            "left_hip_roll": 32,
-            "left_hip_pitch": 33,
+            "left_hip_yaw"   : 31,
+            "left_hip_roll"  : 32,
+            "left_hip_pitch" : 33,
             "left_knee_pitch": 34,
-            "left_ankle_roll": 35,
-            "left_ankle_pitch": 36,
+            "left_ankle_roll" :35,
+            "left_ankle_pitch":36,
+            
             # Right leg
-            "right_hip_yaw": 41,
-            "right_hip_roll": 42,
+            "right_hip_yaw"  : 41,
+            "right_hip_roll" : 42,
             "right_hip_pitch": 43,
             "right_knee_pitch": 44,
-            "right_ankle_roll": 45,
-            "right_ankle_pitch": 46
+            "right_ankle_roll" :45,
+            "right_ankle_pitch":46,
         }
 
         # Store actuator metadata
@@ -156,10 +156,12 @@ class ModelProvider(ModelProviderABC):
         """Get current joint angles from actuators in radians."""
         angles = []
         for name in joint_names:
+            self.log.info(f"Getting joint angle for {name}")
             actuator_id = self.joint_to_actuator[name]
             position = self.actuator_controller.get_position(actuator_id)
             if position is None:
-                position = 0.0  # Default to 0 if position can't be read
+                position = 0.0  # Default to 0 if position can't be read #TODO: Is this the right thing to do/
+                self.log.error(f"Position for joint {name} is None")
             # Convert from degrees to radians
             angles.append(self.degrees_to_radians(float(position)))
         
@@ -176,6 +178,7 @@ class ModelProvider(ModelProviderABC):
             velocity = self.actuator_controller.get_velocity(actuator_id)
             if velocity is None:
                 velocity = 0.0  # Default to 0 if velocity can't be read #TODO: Is this the right thing to do/
+                self.log.error(f"Velocity for joint {name} is None")
             velocities.append(self.degrees_to_radians(float(velocity)))
         
         velocities_array = np.array(velocities, dtype=np.float32)
@@ -186,7 +189,7 @@ class ModelProvider(ModelProviderABC):
         """Get gravity vector in body frame using IMU quaternion."""
         gravity = np.array([0, 0, -9.81], dtype=np.float32)  # Standard gravity vector
         quat = self.get_quaternion()
-        proj_gravity = rotate_vector_by_quat(gravity, quat, inverse=False)
+        proj_gravity = rotate_vector_by_quat(gravity, quat, inverse=True)
         self.arrays["projected_gravity"] = proj_gravity
         #self.log.info(f"Projected gravity: {proj_gravity}")
         return proj_gravity
@@ -235,6 +238,10 @@ class ModelProvider(ModelProviderABC):
         position_commands = {}
         for i, name in enumerate(joint_names):
             actuator_id = self.joint_to_actuator[name]
+            if name not in self.joint_to_actuator:
+                self.log.error(f"take_action: Invalid joint name: {name}")
+                continue
+            #self.log.info(f"Actuator ID: {actuator_id} for joint: {name}")
             # Scale the action and convert from radians to degrees
             scaled_position = self.radians_to_degrees(float(action[i]) * self.action_scale)
             
@@ -247,7 +254,9 @@ class ModelProvider(ModelProviderABC):
                     # Clamp position to limits
                     scaled_position = max(metadata["min"], min(metadata["max"], scaled_position))
                 position_commands[actuator_id] = scaled_position
-        
+            else:
+                self.log.error(f"take_action: actuator_id: {actuator_id} for joint: {name} not available")
+
         # Send commands to actuators
         if position_commands:  # Only send if we have valid commands
             self.actuator_controller.set_positions(position_commands)

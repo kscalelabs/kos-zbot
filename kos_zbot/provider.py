@@ -186,7 +186,7 @@ class ModelProvider(ModelProviderABC):
         """Get gravity vector in body frame using IMU quaternion."""
         gravity = np.array([0, 0, -9.81], dtype=np.float32)  # Standard gravity vector
         quat = self.get_quaternion()
-        proj_gravity = rotate_vector_by_quat(gravity, quat, inverse=True)
+        proj_gravity = rotate_vector_by_quat(gravity, quat, inverse=False)
         self.arrays["projected_gravity"] = proj_gravity
         #self.log.info(f"Projected gravity: {proj_gravity}")
         return proj_gravity

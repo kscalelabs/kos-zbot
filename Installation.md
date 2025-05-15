@@ -125,6 +125,7 @@ dtparam=audio=on
 camera_auto_detect=1
 display_auto_detect=1
 # Servo Controller
+enable_uart=1
 auto_initramfs=1
 dtoverlay=vc4-kms-v3d
 max_framebuffers=2

@@ -42,6 +42,10 @@ sudo apt install portaudio19-dev python3-dev
 wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
 bash Miniforge3.sh -b -p "${HOME}/conda"
 source "${HOME}/conda/etc/profile.d/conda.sh"
+# Add to .bashrc for terminal login:
+cat << EOF >> ~/.bashrc
+source "${HOME}/conda/etc/profile.d/conda.sh"
+EOF
 
 # K-OS Install
 conda activate

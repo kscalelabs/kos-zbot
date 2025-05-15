@@ -139,9 +139,10 @@ arm_boost=1
 [all]
 # Gadget Mode
 dtoverlay=dwc2
-# Audio Amplifier. Pin 37 for Amp pull up, Left Channel
+# Audio Amplifier. Pin 37 for Amp pull up, Left Channel. G16 for GND, pull down.
 dtoverlay=max98357a
 gpio=26=op,dh
+gpio=16=op,dl
 # Microphone, Pin 18 for Mic pull up, Right Channel, Pin 16 for Mic Vin. Requires Y Split for BCLK + LRCLK to follow same I2S as Audio Amp
 dtoverlay=googlevoicehat-soundcard
 gpio=24=op,dh

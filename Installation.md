@@ -110,20 +110,38 @@ Log out and back in for group changes to take effect.
 Edit `/boot/firmware/config.txt` and add/verify the following lines:
 
 ```ini
+[all]
 # KOS PI4 Configuration
+
+# Gadget Mode
+dtoverlay=dwc2
 
 # SPI Display
 dtparam=spi=on
+
 # IMU
 dtparam=i2c_arm=on
 dtparam=i2c_arm_baudrate=400000
 dtoverlay=i2c6,pins_22_23
-# Audio Devices
+
+# Audio Amplifier. Pin 37 for Amp pull up, Left Channel. G16 for gain, ground = positive.
 dtparam=i2s=on
 dtparam=audio=on
+dtoverlay=max98357a
+gpio=26=op,dh
+gpio=16=op,dl
+
 # Camera
 camera_auto_detect=1
 display_auto_detect=1
+
+# Microphone, Pin 18 for Mic pull up, Right Channel, Pin 16 for Mic Vin. Requires Y Split for BCLK + LRCLK to follow same I2S as Audio Amp
+dtoverlay=googlevoicehat-soundcard
+gpio=24=op,dh
+
+# Display, Pin 11 for Backlight pull up
+gpio=17=op,dh
+
 # Servo Controller
 enable_uart=1
 auto_initramfs=1
@@ -137,18 +155,6 @@ disable_overscan=1
 arm_boost=1
 
 
-[all]
-# Gadget Mode
-dtoverlay=dwc2
-# Audio Amplifier. Pin 37 for Amp pull up, Left Channel. G16 for gain, ground = positive.
-dtoverlay=max98357a
-gpio=26=op,dh
-gpio=16=op,dl
-# Microphone, Pin 18 for Mic pull up, Right Channel, Pin 16 for Mic Vin. Requires Y Split for BCLK + LRCLK to follow same I2S as Audio Amp
-dtoverlay=googlevoicehat-soundcard
-gpio=24=op,dh
-# Display, Pin 11 for Backlight pull up
-gpio=17=op,dh
 ```
 
 ---

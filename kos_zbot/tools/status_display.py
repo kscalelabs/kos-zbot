@@ -11,6 +11,9 @@ from types import SimpleNamespace
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async
 
+import numpy as np
+from kos_zbot.utils.quat import rotate_vector_by_quat, GRAVITY_CARTESIAN
+
 BAR_WIDTH = 30
 
 
@@ -98,10 +101,22 @@ def make_imu_table(values, quat, calib_state=None) -> Table:
             "Mag (uT)",
             f"{values.mag_x:.2f}", f"{values.mag_y:.2f}", f"{values.mag_z:.2f}", ""
         )
+
+
     if quat:
+        # TODO: Replace with call from imu getAdvancedValues rather than redundant calc here
+        quat_array = np.array([quat.w, quat.x, quat.y, quat.z])
+        projgrav = rotate_vector_by_quat(
+            GRAVITY_CARTESIAN, quat_array, inverse=True
+        )
+
         tbl.add_row(
             "Quaternion",
             f"{quat.x:.3f}", f"{quat.y:.3f}", f"{quat.z:.3f}", f"{quat.w:.3f}"
+        )
+        tbl.add_row(
+            "Proj Grav (m/s²)",
+            f"{projgrav[0]:.3f}", f"{projgrav[1]:.3f}",f"{projgrav[2]:.3f}", ""
         )
     return tbl
 

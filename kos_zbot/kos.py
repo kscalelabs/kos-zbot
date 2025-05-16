@@ -81,18 +81,25 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:
-            async with self.temporal_lock:
+             async with self.temporal_lock:
                 commands = [
-                    {"actuator_id": cmd.actuator_id, "position": cmd.position}
+                    {
+                        "actuator_id": cmd.actuator_id,
+                        "position": cmd.position,
+                        "velocity": cmd.velocity if cmd.HasField("velocity") else 0.0
+                    }
                     for cmd in request.commands
                 ]
                 servo_commands = {
-                    cmd["actuator_id"]: cmd["position"]
+                    cmd["actuator_id"]: {
+                        "position": cmd["position"],
+                        "velocity": cmd["velocity"]
+                    }
                     for cmd in commands
-                    if cmd["actuator_id"]
-                    in self.actuator_controller.actuator_ids
+                    if cmd["actuator_id"] in self.actuator_controller.actuator_ids
                 }
-                self.actuator_controller.set_positions(servo_commands)
+                self.actuator_controller.set_targets(servo_commands)
+
 
                 return actuator_pb2.CommandActuatorsResponse()
 

@@ -125,14 +125,27 @@ cli.add_command(actuator)
 
 @actuator.command()
 @click.argument('ids', required=True)
-@click.argument('positions', nargs=-1, type=float, required=True)
+@click.argument('target', required=True)
+@click.option('--velocity', '-v', type=float,  default=None, help="Target velocity in degrees/second")
 @click.option('--kp', type=float, default=None, help="Position gain (optional)")
 @click.option('--kd', type=float, default=None, help="Velocity gain (optional)")
 @click.option('--acceleration', type=float, default=None, help="Acceleration (optional)")
 @click.option('--wait', type=float, default=3.0, show_default=True, help="Seconds to wait for actuators to reach target")
-def move(ids, positions, kp, kd, acceleration, wait):
+def move(ids, target, velocity, kp, kd, acceleration, wait):
+    """Move actuators to target position with optional velocity control.
+    
+    Examples:
+        # Move all actuators to 0 degrees
+        kos actuator move all 0
+        
+        # Move actuators 11,12 to 90 degrees at 45 deg/s
+        kos actuator move 11,12 90 -v 45
+        
+        # Move actuator 11 to -45 degrees with custom gains
+        kos actuator move 11 -45 --kp 100 --kd 4
+    """
     from kos_zbot.tools.actuator_move import actuator_move
-    asyncio.run(actuator_move(ids, positions, kp, kd, acceleration, wait))
+    asyncio.run(actuator_move(ids, target, velocity, kp, kd, acceleration, wait))
 
 
 @actuator.command()

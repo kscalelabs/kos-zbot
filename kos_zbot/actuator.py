@@ -91,6 +91,8 @@ class SCSMotorController:
         self.actuator_ids = set()  # Use set instead of list for efficient membership testing
         self.last_commanded_positions = {}
         self.next_position_batch = None  # Atomic batch update
+        self.last_commanded_velocities = {}
+        self.next_velocity_batch = None 
         
         self.port_handler = PortHandler(device)
         self.packet_handler = sms_sts(self.port_handler)
@@ -125,7 +127,7 @@ class SCSMotorController:
         self.fault_history = {}  # Track fault history
 
         self._max_servo_cnt   = 20   # worst‑case number of IDs you’ll ever have
-        self._tx_buf          = bytearray(self._max_servo_cnt * 3)     # id, lo, hi
+        self._tx_buf          = bytearray(self._max_servo_cnt * 7)     # id, pos_lo, pos_hi, time_lo, time_hi, vel_lo, vel_hi
         self._last_sent_pos   = {}            # id → counts  (keeps GC stable)
 
         time.sleep(1)
@@ -157,6 +159,7 @@ class SCSMotorController:
         # Initialize position tracking
         self.actuator_ids.add(actuator_id)
         self.last_commanded_positions[actuator_id] = 0
+        self.last_commanded_velocities[actuator_id] = 0
 
         # Double-buffered positions: initialize both buffers
         self._positions_a[actuator_id] = 0
@@ -343,9 +346,9 @@ class SCSMotorController:
             if not in_grace and self._control_lock.acquire(blocking=False):
                 try:
                     if self.actuator_ids:
-                        self._write_positions()
+                        self._write_commands()
                         time.sleep(0.002)
-                        self._read_positions()
+                        self._read_states()
                 except Exception as e:
                     self.log.error(f"error in update loop: {e}")
                 finally:
@@ -432,8 +435,8 @@ class SCSMotorController:
         for actuator_id in sorted(self.actuator_ids):
             self._get_params(actuator_id)
             
-    def _read_positions(self):
-        """Read current positions from all servos"""
+    def _read_states(self):
+        """Read current positions and velocities from all servos"""
         current_time = time.monotonic()
         new_positions = {}
         new_velocities = {}
@@ -480,7 +483,7 @@ class SCSMotorController:
                 self._active_positions = inactive_positions
                 self._active_velocities = inactive_velocities
     
-    def _write_positions(self):
+    def _write_commands(self):
         """
         Allocation‑free Sync‑WRITE.
         • Builds the payload in a pre‑allocated bytearray (`self._tx_buf`)
@@ -493,7 +496,9 @@ class SCSMotorController:
         with self._target_positions_lock:
             if self.next_position_batch is not None:
                 self.last_commanded_positions.update(self.next_position_batch)
+                self.last_commanded_velocities.update(self.next_velocity_batch)
                 self.next_position_batch = None
+                self.next_velocity_batch = None
 
         write_ids = self.torque_enabled_ids & self.commanded_ids
         if not write_ids:
@@ -504,6 +509,7 @@ class SCSMotorController:
         changed  = False
         for aid in sorted(write_ids):
             counts = self.last_commanded_positions.get(aid)
+            velocity = self.last_commanded_velocities.get(aid, 0)
             if counts is None:
                 continue
 
@@ -512,10 +518,20 @@ class SCSMotorController:
                 changed = True
                 self._last_sent_pos[aid] = counts
 
+             # Position (2 bytes)
             self._tx_buf[buf_idx]     = aid
             self._tx_buf[buf_idx + 1] = counts & 0xFF
             self._tx_buf[buf_idx + 2] = (counts >> 8) & 0xFF
-            buf_idx += 3
+            
+            # Time (2 bytes) - dummy value of 0
+            self._tx_buf[buf_idx + 3] = 0
+            self._tx_buf[buf_idx + 4] = 0
+            
+            # Velocity (2 bytes)
+            self._tx_buf[buf_idx + 5] = velocity & 0xFF
+            self._tx_buf[buf_idx + 6] = (velocity >> 8) & 0xFF
+
+            buf_idx += 7
 
         if not changed:
             return                                  # nothing new → no TX
@@ -524,7 +540,7 @@ class SCSMotorController:
         #    param_length == number_of_bytes we’re sending (buf_idx)
         self.packet_handler.syncWriteTxOnly(
             SMS_STS_GOAL_POSITION_L,   # start address
-            2,                         # bytes per servo
+            6,                         # bytes per servo (2 for position, 2 for time, 2 for velocity)
             memoryview(self._tx_buf)[:buf_idx],
             buf_idx                    # param_length
         )
@@ -538,15 +554,27 @@ class SCSMotorController:
         return int((degrees + offset) * (4096 / 360))
         
 
-    def set_positions(self, position_dict: Dict[int, float]):
-        """Set target positions for multiple actuators atomically (positions in degrees)."""
+    def set_targets(self, target_dict: Dict[int, Dict[str, float]]):
+        """Set target positions and velocities for multiple actuators atomically. 
+        Args:
+        target_dict: Dictionary mapping actuator IDs to dictionaries containing:
+            - 'position': Target position in degrees
+            - 'velocity': Target velocity in degrees/second
+        """
         with self._target_positions_lock:
             if self.next_position_batch is None:
                 self.next_position_batch = {}
+                self.next_velocity_batch = {}
 
-            for actuator_id, degrees in position_dict.items():
-                counts = self._degrees_to_counts(degrees, offset=180.0)
+            for actuator_id, targets in target_dict.items():
+                # Convert position to counts
+                counts = self._degrees_to_counts(targets['position'], offset=180.0)
                 self.next_position_batch[actuator_id] = counts
+                
+                # Convert velocity to counts
+                velocity_counts = self._degrees_to_counts(targets['velocity'], offset=0.0)
+                self.next_velocity_batch[actuator_id] = velocity_counts
+                
                 self.commanded_ids.add(actuator_id)
             
     def get_position(self, actuator_id: int) -> Optional[float]:
@@ -784,6 +812,7 @@ class SCSMotorController:
 
         # Set the target and buffers to zero
         self.last_commanded_positions[actuator_id] = self._degrees_to_counts(0, offset=180.0)
+        self.last_commanded_velocities[actuator_id] = 0
         self._positions_a[actuator_id] = 0
         self._positions_b[actuator_id] = 0
 

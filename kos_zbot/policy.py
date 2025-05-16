@@ -98,12 +98,15 @@ class PolicyManager:
             position_commands = {}
             for joint_name, actuator_id in self.model_provider.joint_to_actuator.items():
                 if actuator_id in self.actuator_controller.actuator_ids:
-                    position_commands[actuator_id] = 0.0  # Move to 0 degrees
+                    position_commands[actuator_id] = {
+                        "position": 0.0,  # Move to 0 degrees
+                        "velocity": 0.0   # Disable vmax
+                    }
             
             # Send commands to actuators
             if position_commands:
                 self.log.info("Moving all joints to zero position")
-                self.actuator_controller.set_positions(position_commands)
+                self.actuator_controller.set_targets(position_commands)
                 # Wait a bit for the movement to complete
                 await asyncio.sleep(1.0)
         except Exception as e:

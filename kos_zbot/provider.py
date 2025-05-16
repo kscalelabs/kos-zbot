@@ -130,7 +130,7 @@ class ModelProvider(ModelProviderABC):
         """Get current joint angles from actuators in radians."""
         angles = []
         for name in joint_names:
-            self.log.info(f"Getting joint angle for {name}")
+            #self.log.info(f"Getting joint angle for {name}")
             actuator_id = self.joint_to_actuator[name]
             position = self.actuator_controller.get_position(actuator_id)
             if position is None:
@@ -233,5 +233,10 @@ class ModelProvider(ModelProviderABC):
 
         # Send commands to actuators
         if position_commands:  # Only send if we have valid commands
-            self.actuator_controller.set_positions(position_commands)
-            #self.log.info(f"Sent position commands: {position_commands}")
+            # Convert position commands to target commands with constant velocity
+            target_commands = {
+                aid: {"position": pos, "velocity": 0} 
+                for aid, pos in position_commands.items()
+            }
+            self.actuator_controller.set_targets(target_commands)
+            #self.log.info(f"Sent target commands: {target_commands}")

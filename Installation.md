@@ -37,6 +37,10 @@
 # Install system dependencies
 sudo apt install portaudio19-dev python3-dev
 
+# Install Rust (kinfer)
+sudo apt install rustc -y
+rustup default stable
+
 # (Optional) Create and activate a conda environment
 # Programmatic Miniforge install : https://github.com/conda-forge/miniforge
 wget -O Miniforge3.sh "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
@@ -55,6 +59,8 @@ cd ~
 git clone https://github.com/kscalelabs/kos-zbot
 cd kos-zbot
 pip install -e .
+pip install -r requirements.txt
+
 ```
 
 

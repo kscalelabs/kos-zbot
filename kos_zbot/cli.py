@@ -53,11 +53,11 @@ def cli():
     help="Scale factor for model outputs (0.0 to 1.0)",
 )
 @click.option(
-    "--duration",
+    "--episode-length",
     type=float,
     default=30.0,
     show_default=True,
-    help="Run duration in seconds",
+    help="Run episode length in seconds",
 )
 @click.option(
     "--device",

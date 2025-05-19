@@ -86,25 +86,25 @@ class PolicyLoop:
         self.log.info("Policy stopped")
 
     def start(self):
-        """Start the synchronized control loop."""
+        """Start the policy loop."""
         if self.running:
-            self.log.warning("Synchronized control loop already running")
+            self.log.warning("Policy loop already running")
             return
 
         self.running = True
-        self.thread = threading.Thread(target=self._unified_loop, daemon=True)
+        self.thread = threading.Thread(target=self._policy_loop, daemon=True)
         self.thread.start()
-        self.log.info(f"Synchronized control loop started at {self.rate}Hz")
+        self.log.info(f"Policy loop started at {self.rate}Hz")
 
     def stop(self):
-        """Stop the synchronized control loop."""
+        """Stop the policy loop."""
         if not self.running:
             return
 
         self.running = False
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
-        self.log.info("Synchronized control loop stopped")
+        self.log.info("Policy loop stopped")
 
     def _run_policy(self):
         """Run a single step of policy inference directly."""
@@ -122,7 +122,7 @@ class PolicyLoop:
         except Exception as e:
             self.log.error(f"Policy inference error: {e}")
 
-    def _unified_loop(self):
+    def _policy_loop(self):
         """
         Main synchronous control loop with precise timing that:
         1. Reads IMU values directly
@@ -211,7 +211,7 @@ async def run_policy_loop(
     Args:
         model_file: Path to the policy model file (optional)
         action_scale: Scale factor for actions (0.0 to 1.0)
-        duration: Run duration in seconds
+        episode_length: Run episode length in seconds
         device: Serial device for actuator controller
         baudrate: Serial baudrate for actuator controller
         rate: Control loop rate in Hz
@@ -271,7 +271,7 @@ async def run_policy_loop(
                     )
 
             # Initialize policy in the unified loop
-            if not unified_loop.init_policy(model_file, model_provider):
+            if not policy_loop.init_policy(model_file, model_provider):
                 log.error("Failed to initialize policy")
         except Exception as e:
             log.error(f"Error initializing policy: {e}")
@@ -287,20 +287,20 @@ async def run_policy_loop(
     signal.signal(signal.SIGTERM, handle_signal)
 
     # Start the unified loop
-    unified_loop.start()
+    policy_loop.start()
 
     time.sleep(1.0)
-    unified_loop.latency_tracker.reset()
+    policy_loop.latency_tracker.reset()
 
-    log.info(f"Policy episode length: {duration} seconds")
+    log.info(f"Policy episode length: {episode_length} seconds")
 
     try:
-        # Wait for the specified duration or until interrupted
-        await asyncio.wait_for(stop_event.wait(), timeout=duration)
+        # Wait for the specified episode length or until interrupted
+        await asyncio.wait_for(stop_event.wait(), timeout=episode_length)
     except asyncio.TimeoutError:
-        log.info(f"Duration completed ({duration}s)")
+        log.info(f"Episode completed ({episode_length}s)")
     finally:
-        unified_loop.stop()
+        policy_loop.stop()
 
         # Stop the policy loop and clean up
         position_commands = {}
@@ -315,7 +315,7 @@ async def run_policy_loop(
 
         imu_manager.stop()
         actuator_controller.stop()
-        unified_loop.latency_tracker.save_latest_snapshot()
+        policy_loop.latency_tracker.save_latest_snapshot()
         log.info("Deployment complete")
 
     return 0
@@ -337,7 +337,7 @@ def main():
         help="Scale factor for model outputs (0.0 to 1.0)",
     )
     parser.add_argument(
-        "--episode-length", type=float, default=30.0, help="Run duration in seconds"
+        "--episode-length", type=float, default=30.0, help="Run episode length in seconds"
     )
     parser.add_argument(
         "--device",

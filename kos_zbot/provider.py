@@ -6,7 +6,7 @@ from kinfer.rust_bindings import ModelProviderABC
 from kos_zbot.actuator import SCSMotorController
 from kos_zbot.imu import BNO055Manager
 from kos_zbot.utils.logging import get_logger
-from kos_zbot.utils.math import rotate_vector_by_quat
+from kos_zbot.utils.quat import rotate_vector_by_quat
 
 
 class ModelProvider(ModelProviderABC):

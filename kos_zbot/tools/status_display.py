@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async
 
+
 import numpy as np
 from kos_zbot.utils.quat import rotate_vector_by_quat, GRAVITY_CARTESIAN
 
@@ -120,6 +121,32 @@ def make_imu_table(values, quat, calib_state=None) -> Table:
         )
     return tbl
 
+def make_latency_table(stats: dict) -> Table:
+    """Create a table showing latency statistics for all trackers."""
+    tbl = Table(title="Latency Statistics", show_header=True, header_style="bold yellow")
+    tbl.add_column("Loop", justify="left")
+    tbl.add_column("Mean (ms)", justify="right")
+    tbl.add_column("Std (ms)", justify="right")
+    tbl.add_column("Min (ms)", justify="right")
+    tbl.add_column("Max (ms)", justify="right")
+    tbl.add_column("Overrun %", justify="right")
+    tbl.add_column("Period (ms)", justify="right")
+    tbl.add_column("Samples", justify="right")
+
+    for name, stat in stats.items():
+        # Format the statistics with appropriate precision
+        tbl.add_row(
+            name,
+            f"{stat['mean']:.2f}",
+            f"{stat['std']:.2f}",
+            f"{stat['min']:.2f}",
+            f"{stat['max']:.2f}",
+            f"{stat['overrun_rate']*100:.1f}%",
+            f"{stat['period']:.1f}",
+            str(stat['samples'])
+        )
+    return tbl
+
 def make_calib_table(calib_state) -> Table:
     tbl = Table(title="IMU Calibration", show_header=True, header_style="bold green")
     tbl.add_column("Component", justify="left")
@@ -129,16 +156,19 @@ def make_calib_table(calib_state) -> Table:
             tbl.add_row(str(k), str(v))
     return tbl
 
-def init_grid(states, imu_vals, imu_quat, imu_calib, scale: float) -> Table:
+def init_grid(states, imu_vals, imu_quat, imu_calib, scale: float, latency_stats: dict) -> Table:
     grid = Table.grid()
     imu_group = Group(
         make_imu_table(SimpleNamespace(**imu_vals), SimpleNamespace(**imu_quat)),
         make_calib_table(imu_calib)
     )
+    latency_table = make_latency_table(latency_stats)
+
     grid.add_row(
         make_table([SimpleNamespace(**d) for d in states], scale),
-        imu_group
+        imu_group,
     )
+    grid.add_row(latency_table)
     return grid
 
 
@@ -193,6 +223,26 @@ def imu_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
     asyncio.set_event_loop(loop)
     loop.run_until_complete(poll())
 
+
+def latency_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
+    async def poll():
+        client = KOS(ip)
+        period = 1.0 / freq
+        while True:
+            try:
+                # Get latency stats from KOS service
+                resp = await client.policy.get_latency_stats()
+                if out_q.full(): out_q.get_nowait()
+                out_q.put(dict(resp.stats))
+            except Exception:
+                await asyncio.sleep(period)
+            else:
+                await asyncio.sleep(period)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(poll())
+
 async def show_status(scale: float = 180.0,
                       act_freq: float = 20.0,
                       imu_freq: float = 20.0,
@@ -208,9 +258,13 @@ async def show_status(scale: float = 180.0,
 
     act_q = mp.Queue(maxsize=1)
     imu_q = mp.Queue(maxsize=1)
+    latency_q = mp.Queue(maxsize=1)
     act_p = mp.Process(target=actuator_worker, args=(act_q, act_freq, ip), daemon=True)
     imu_p = mp.Process(target=imu_worker, args=(imu_q, imu_freq, ip), daemon=True)
-    act_p.start(); imu_p.start()
+    latency_p = mp.Process(target=latency_worker, args=(latency_q, act_freq, ip), daemon=True)
+    act_p.start() 
+    imu_p.start()
+    latency_p.start()
 
     # Default zero IMU values
     zero_states = []
@@ -221,16 +275,18 @@ async def show_status(scale: float = 180.0,
     }
     zero_imu_quat = {"w": 1.0, "x": 0.0, "y": 0.0, "z": 0.0}
     zero_imu_calib = {"sys": 0, "gyro": 0, "accel": 0, "mag": 0}
+    zero_latency_stats = {}
 
     # Start with all zeros
     states = zero_states
     imu_vals, imu_quat, imu_calib = zero_imu_vals, zero_imu_quat, zero_imu_calib
+    latency_stats = zero_latency_stats
 
     render_rate = 30
     render_interval = 1.0 / render_rate
 
     # build initial grid once
-    initial_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale)
+    initial_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale, latency_stats)
     with Live(Group(title, initial_grid), console=console,
               refresh_per_second=render_rate, screen=True) as live:
 
@@ -252,8 +308,14 @@ async def show_status(scale: float = 180.0,
             except queue.Empty: 
                 pass
 
+            try:
+                latency_stats = latency_q.get_nowait()
+                updated = True
+            except queue.Empty:
+                pass
+
             if updated:
-                new_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale)
+                new_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale, latency_stats)
                 live.update(Group(title, new_grid))
                 last_states = states
 

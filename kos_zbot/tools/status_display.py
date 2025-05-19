@@ -129,7 +129,6 @@ def make_latency_table(stats: dict) -> Table:
     tbl.add_column("Std (ms)", justify="right")
     tbl.add_column("Min (ms)", justify="right")
     tbl.add_column("Max (ms)", justify="right")
-    tbl.add_column("Overrun %", justify="right")
     tbl.add_column("Period (ms)", justify="right")
     tbl.add_column("Samples", justify="right")
 
@@ -141,7 +140,6 @@ def make_latency_table(stats: dict) -> Table:
             f"{stat['std']:.2f}",
             f"{stat['min']:.2f}",
             f"{stat['max']:.2f}",
-            f"{stat['overrun_rate']*100:.1f}%",
             f"{stat['period']:.1f}",
             str(stat['samples'])
         )

@@ -10,14 +10,16 @@ from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 from kos_zbot.provider import ModelProvider
 from kos_zbot.utils.logging import get_logger, KOSLoggerSetup, get_log_level
-from kos_zbot.utils.latency import get_tracker
+#from kos_zbot.utils.latency import get_tracker
 import board
 import busio
-
+from datetime import datetime 
+import json
+import time
 
 class PolicyLoop:
     """
-    A truly unified control loop that handles IMU reading, policy inference,
+    A truly inference loop that handles IMU reading, policy inference,
     and actuator control directly in a single thread with high-precision timing.
     """
 
@@ -42,8 +44,8 @@ class PolicyLoop:
         self.thread = None
 
         # Performance tracking
-        self.latency_tracker = get_tracker("inference_loop")
-        self.latency_tracker.set_period(self.PERIOD_NS)
+        #self.latency_tracker = get_tracker("inference_loop")
+        #self.latency_tracker.set_period(self.PERIOD_NS)
 
         # IMU variables
         self.imu_manager = imu_manager
@@ -61,6 +63,7 @@ class PolicyLoop:
         self.policy_carry = None
         self.policy_provider = None
         self.action_scale = 0.1
+        self.policy_log = []
 
     def init_policy(self, model_file, model_provider):
         """Initialize policy inference directly in this class."""
@@ -71,7 +74,7 @@ class PolicyLoop:
             self.policy_model = PyModelRunner(model_file, model_provider)
             self.policy_carry = self.policy_model.init()
             self.policy_active = True
-            self.log.info(f"Policy initialized from {model_file}")
+            self.log.info(f"Loading model: {model_file}")
             return True
         except Exception as e:
             self.log.error(f"Policy initialization failed: {e}")
@@ -94,7 +97,6 @@ class PolicyLoop:
         self.running = True
         self.thread = threading.Thread(target=self._policy_loop, daemon=True)
         self.thread.start()
-        self.log.info(f"Policy loop started at {self.rate}Hz")
 
     def stop(self):
         """Stop the policy loop."""
@@ -104,7 +106,19 @@ class PolicyLoop:
         self.running = False
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
-        self.log.info("Policy loop stopped")
+
+        self.imu_manager.stop()
+
+        # Create logs directory if it doesn't exist
+        os.makedirs("logs", exist_ok=True)
+        
+        # Save with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"logs/policy_log_{timestamp}.json"
+        
+        self.policy_provider.save_logs(filename)
+        
+        self.log.info(f"Policy logs saved to {filename}")
 
     def _run_policy(self):
         """Run a single step of policy inference directly."""
@@ -113,11 +127,7 @@ class PolicyLoop:
 
         try:
             self.policy_provider.arrays.clear()
-
-            # Run one step of the model
             output, self.policy_carry = self.policy_model.step(self.policy_carry)
-
-            # Apply the output directly
             self.policy_model.take_action(output)
         except Exception as e:
             self.log.error(f"Policy inference error: {e}")
@@ -137,40 +147,46 @@ class PolicyLoop:
             self.log.info(f"Inference loop running on CPUs: {sorted(allowed)}")
 
             # Set real-time scheduler if possible
-            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
+            os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(80))
         except (AttributeError, PermissionError, ImportError) as e:
             self.log.warning(f"Could not set real-time priority: {e}")
 
-        # Increase GC thresholds to reduce jitter
+        # Increase GC thresholds to reduce potential jitter
         gc.set_threshold(700, 10, 5)
+        
+        self.log.info("Warming up")
+        warmup_start = time.monotonic_ns()
+        warmup_end = warmup_start + int(1e9)
+        all_valid = False
+        
+        while (time.monotonic_ns() < warmup_end or not all_valid) and self.running:
+            self.actuator_controller._read_states()
+            
+            # Check actuator positions
+            all_valid = True
+            for actuator_id in self.actuator_controller.actuator_ids:
+                pos = self.actuator_controller.get_position(actuator_id)
+                if pos is None or pos == -180.0:
+                    all_valid = False
+                    break
+                    
+            self._run_policy()
+            time.sleep(1/self.rate)
+        
+        self.policy_carry = self.policy_model.init()
+            
 
+        self.log.info(f"Starting policy ({self.rate}Hz)")
         next_time = time.monotonic_ns()
         while self.running:
-            self.latency_tracker.record_iteration()
+            #self.latency_tracker.record_iteration()
 
             start_time = time.monotonic_ns()
-            # 2. Run policy inference directly
-            if self.policy_active:
-                self._run_policy()
-            policy_time = time.monotonic_ns() - start_time
-            if policy_time > 10_000_000:  # 10ms
-                self.log.warning(f"Policy execution took {policy_time/1000000:.2f}ms")
-
-            start_time = time.monotonic_ns()
-            # 3. Access actuator controller to write commands and read state
-            if self.actuator_controller.actuator_ids:
-                # Write pending commands
-                self.actuator_controller._write_commands()
-                # Brief delay to allow hardware to process
-                time.sleep(0.002)
-                # Read back actuator states
-                self.actuator_controller._read_states()
-            actuator_time = time.monotonic_ns() - start_time
-            if actuator_time > 10_000_000:  # 10ms
-                self.log.warning(f"Actuator read took {actuator_time/1000000:.2f}ms")
-            # -- UNIFIED CYCLE END --
-
-            # -- Schedule next tick with precise timing --
+            self.actuator_controller._read_states()
+            self._run_policy()
+            self.actuator_controller._write_commands()
+                
+            # -- Schedule next tick-
             next_time += self.PERIOD_NS
             now_ns = time.monotonic_ns()
             sleep_ns = next_time - now_ns - self.SPIN_NS
@@ -193,9 +209,12 @@ class PolicyLoop:
                 elif over_us > 2_000:
                     self.log.warning(f"Overrun {over_us/1000:.2f} ms")
                 elif over_us > 500:
-                    self.log.debug(f"Minor jitter {over_us/1000:.2f} ms")
-
-
+                    self.log.warning(f"Minor jitter {over_us/1000:.2f} ms")
+                elif over_us > 100:
+                    self.log.warning(f"Very minor jitter {over_us/1000:.2f} ms")
+                elif over_us > 50:
+                    self.log.warning(f"Super Minor jitter {over_us/1000:.4f} ms")
+    
 async def run_policy_loop(
     model_file=None,
     action_scale=0.1,
@@ -205,7 +224,7 @@ async def run_policy_loop(
     rate=50,
 ):
     """
-    Run a unified control loop that handles IMU, actuators, and optionally a policy model
+    Run a inference loop that handles IMU, actuators, and optionally a policy model
     in a single thread with high-precision timing.
 
     Args:
@@ -223,9 +242,8 @@ async def run_policy_loop(
         )
 
     log = get_logger(__name__)
-    log.info(f"Starting unified control loop at {rate}Hz")
 
-    # Initialize actuator controller but don't start its background thread
+    # Initialize actuator controller
     try:
         actuator_controller = SCSMotorController(
             device=device, baudrate=baudrate, rate=rate
@@ -238,20 +256,27 @@ async def run_policy_loop(
     imu_manager = BNO055Manager(update_rate=100)
     imu_manager.start()
 
-    time.sleep(3.0)
+    time.sleep(3.0) 
 
     policy_loop = PolicyLoop(
         actuator_controller=actuator_controller, imu_manager=imu_manager, rate=rate
     )
 
+    stop_event = asyncio.Event()
+    def handle_signal(sig, frame):
+        log.info(f"Received signal {sig}, stopping")
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
     if model_file:
-        log.info(f"Initializing policy from {model_file}")
         try:
-            # Create model provider
             model_provider = ModelProvider(actuator_controller, imu_manager)
             model_provider.set_action_scale(action_scale)
 
             # Configure actuators based on model
+            log.info(f"Configuring actuators")
             for joint_name, metadata in model_provider.actuator_metadata.items():
                 actuator_id = model_provider.joint_to_actuator[joint_name]
                 config = {
@@ -260,38 +285,17 @@ async def run_policy_loop(
                     "torque_enabled": True,
                     "acceleration": 1000,
                 }
-                success = actuator_controller.configure_actuator(actuator_id, config)
-                if success:
-                    log.info(
-                        f"Configured actuator {actuator_id} ({joint_name}) with kp={metadata['kp']}, kd={metadata['kd']}"
-                    )
-                else:
-                    log.error(
-                        f"Failed to configure actuator {actuator_id} ({joint_name})"
-                    )
-
-            # Initialize policy in the unified loop
+                actuator_controller.configure_actuator(actuator_id, config)
+                          
             if not policy_loop.init_policy(model_file, model_provider):
                 log.error("Failed to initialize policy")
         except Exception as e:
             log.error(f"Error initializing policy: {e}")
 
-    # Setup signal handlers
-    stop_event = asyncio.Event()
 
-    def handle_signal(sig, frame):
-        log.info(f"Received signal {sig}, stopping...")
-        stop_event.set()
-
-    signal.signal(signal.SIGINT, handle_signal)
-    signal.signal(signal.SIGTERM, handle_signal)
-
-    # Start the unified loop
     policy_loop.start()
 
-    time.sleep(1.0)
-    policy_loop.latency_tracker.reset()
-
+    #policy_loop.latency_tracker.reset()
     log.info(f"Policy episode length: {episode_length} seconds")
 
     try:
@@ -301,8 +305,6 @@ async def run_policy_loop(
         log.info(f"Episode completed ({episode_length}s)")
     finally:
         policy_loop.stop()
-
-        # Stop the policy loop and clean up
         position_commands = {}
         for actuator_id in actuator_controller.actuator_ids:
             position_commands[actuator_id] = {"position": 0.0, "velocity": 0.0}
@@ -315,7 +317,7 @@ async def run_policy_loop(
 
         imu_manager.stop()
         actuator_controller.stop()
-        policy_loop.latency_tracker.save_latest_snapshot()
+        #policy_loop.latency_tracker.save_latest_snapshot()
         log.info("Deployment complete")
 
     return 0

@@ -6,7 +6,7 @@ from kinfer.rust_bindings import PyModelRunner
 from kos_zbot.utils.logging import get_logger
 from kos_zbot.actuator import SCSMotorController
 from kos_zbot.imu import BNO055Manager
-from kos_zbot.utils.latency import get_tracker
+#from kos_zbot.utils.latency import get_tracker
 import threading
 import time
 
@@ -28,7 +28,7 @@ class PolicyManager:
         )
         self.action_scale = 0.1  # Default action scale
 
-        self.latency_tracker = get_tracker("policy_loop")
+        #self.latency_tracker = get_tracker("policy_loop")
         self.stop_event = False
         self.task = None
         # TODO: Work on state feedback (this is a placeholder)
@@ -121,7 +121,7 @@ class PolicyManager:
             self.thread = threading.Thread(target=self._run_policy)
             self.thread.start()
 
-            self.latency_tracker.reset()
+            #self.latency_tracker.reset()
             return True
 
         except Exception as e:
@@ -167,9 +167,9 @@ class PolicyManager:
             period = 0.02  # 50Hz = 20ms period
             next_deadline = start_time + period  # Initial deadline
             period_ns = int(period * 1e9)
-            self.latency_tracker.set_period(period_ns)
+            #self.latency_tracker.set_period(period_ns)
             while not self.stop_event:
-                self.latency_tracker.record_iteration()
+                #self.latency_tracker.record_iteration()
                 # Check episode length
                 if time.monotonic() - start_time >= self.episode_length:
                     self.log.info(

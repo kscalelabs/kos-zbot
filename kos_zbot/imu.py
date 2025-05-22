@@ -131,9 +131,8 @@ class BNO055Manager:
                 self._imu_error_msg = "IMU did not respond in time"
                 self.log.error("IMU did not respond in time")
                 return
-            self.log.info("Sensor process started")
-        else:
-            self.log.warning("Sensor process already running")
+            self.log.info("IMU process started")
+
 
         if not (self._reader_thread and self._reader_thread.is_alive()):
             self._stop_reader.clear()
@@ -141,9 +140,6 @@ class BNO055Manager:
                 target=self._reader_loop, daemon=True
             )
             self._reader_thread.start()
-            self.log.info("Reader thread started")
-        else:
-            self.log.warning("Reader thread already running")
 
     def stop(self):
         """Stop sensor process and reader thread."""
@@ -151,13 +147,11 @@ class BNO055Manager:
             self._process.terminate()
             self._process.join()
             self._process = None
-            self.log.info("Sensor process stopped")
 
         if self._reader_thread:
             self._stop_reader.set()
             self._reader_thread.join()
             self._reader_thread = None
-            self.log.info("Reader thread stopped")
 
     def _reader_loop(self):
         """Continuously drain queue; update buffer only with fully valid readings."""

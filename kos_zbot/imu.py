@@ -178,7 +178,7 @@ class BNO055Manager:
             except queue.Empty:
                 continue
             except Exception:
-                self.log.exception("Error in reader thread")
+                self.log.error("Error in reader thread")
 
     def get_values(self):
         """Get latest accel, gyro, mag."""

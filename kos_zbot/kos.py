@@ -81,25 +81,24 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:
-             async with self.temporal_lock:
+            async with self.temporal_lock:
                 commands = [
                     {
                         "actuator_id": cmd.actuator_id,
                         "position": cmd.position,
-                        "velocity": cmd.velocity if cmd.HasField("velocity") else 0.0
+                        "velocity": cmd.velocity if cmd.HasField("velocity") else 0.0,
                     }
                     for cmd in request.commands
                 ]
                 servo_commands = {
                     cmd["actuator_id"]: {
                         "position": cmd["position"],
-                        "velocity": cmd["velocity"]
+                        "velocity": cmd["velocity"],
                     }
                     for cmd in commands
                     if cmd["actuator_id"] in self.actuator_controller.actuator_ids
                 }
                 self.actuator_controller.set_targets(servo_commands)
-
 
                 return actuator_pb2.CommandActuatorsResponse()
 
@@ -168,20 +167,22 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         velocity=0.0,
                         online=False,
                         faults=["servo not registered"],
-                        )
+                    )
                     states.append(state)
                     continue
 
-                torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
+                torque_enabled = self.actuator_controller.get_torque_enabled(
+                    actuator_id
+                )
                 state_dict = self.actuator_controller.get_state(actuator_id)
                 fault_info = self.actuator_controller.get_faults(actuator_id)
                 if fault_info is None:
                     faults = []
                 else:
                     faults = [
-                        str(fault_info['last_fault_message']),
-                        str(fault_info['total_faults']),
-                        str(int(fault_info['last_fault_time']))  # as integer timestamp
+                        str(fault_info["last_fault_message"]),
+                        str(fault_info["total_faults"]),
+                        str(int(fault_info["last_fault_time"])),  # as integer timestamp
                     ]
 
                 if state_dict is None:
@@ -301,7 +302,9 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         except IMUNotAvailableError as e:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details(str(e))
-            return imu_pb2.IMUAdvancedValuesResponse(error=common_pb2.Error(message=str(e)))
+            return imu_pb2.IMUAdvancedValuesResponse(
+                error=common_pb2.Error(message=str(e))
+            )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -325,7 +328,9 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         except IMUNotAvailableError as e:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details(str(e))
-            return imu_pb2.GetCalibrationStateResponse(error=common_pb2.Error(message=str(e)))
+            return imu_pb2.GetCalibrationStateResponse(
+                error=common_pb2.Error(message=str(e))
+            )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -340,6 +345,7 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         # The BNO055 handles its own zeroing/calibration, so this is a no-op
         return common_pb2.ActionResponse(success=True)
 
+
 class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
     def __init__(self, policy_manager: PolicyManager):
         super().__init__()
@@ -353,7 +359,7 @@ class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
                 policy_file=request.action,
                 action_scale=request.action_scale,
                 episode_length=request.episode_length,
-                dry_run=request.dry_run
+                dry_run=request.dry_run,
             )
             return policy_pb2.StartPolicyResponse()
         except Exception as e:
@@ -382,6 +388,7 @@ class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
             return policy_pb2.GetStateResponse()
+
 
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
@@ -423,9 +430,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         policy_service = PolicyService(policy_manager)
-        policy_pb2_grpc.add_PolicyServiceServicer_to_server(
-            policy_service, server
-        )
+        policy_pb2_grpc.add_PolicyServiceServicer_to_server(policy_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()

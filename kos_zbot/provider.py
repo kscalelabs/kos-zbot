@@ -1,5 +1,3 @@
-"""Defines a K-Infer model provider for real hardware"""
-
 from typing import Sequence, cast
 import numpy as np
 from kinfer.rust_bindings import ModelProviderABC

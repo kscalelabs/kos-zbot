@@ -11,7 +11,7 @@ setup(
     install_requires=[
         'pyserial==3.5',
         'grpcio',
-        'pykos>=0.7.9',
+        'pykos>=0.7.10',
         'adafruit-circuitpython-bno055',
         'psutil',
         'tabulate',
@@ -27,7 +27,7 @@ setup(
         'click',
         'rich',
         'RPi.GPIO',
-        'kscale'
+        'kscale>=0.3.16'
     ],
     entry_points={
         'console_scripts': [

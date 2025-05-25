@@ -2,6 +2,8 @@ import click
 import asyncio
 from tabulate import tabulate
 from pykos import KOS
+from kos_zbot.utils.metadata import RobotMetadata
+from kos_zbot.inference import run_policy_loop  
 from kos_zbot.tools.status_display import show_status
 from kos_zbot.tools.actuator_dump import actuator_dump
 from kos_zbot.tools.actuator_move import actuator_move
@@ -10,10 +12,6 @@ from kos_zbot.tools.actuator_zero import actuator_zero
 from kos_zbot.tools.policy_run import policy_start, policy_stop, get_policy_state
 from google.protobuf.json_format import MessageToDict
 
-
-class MainGroup(click.Group):
-    def list_commands(self, ctx):
-        return ["inference", "service", "policy", "status", "actuator", "test"]
 
 
 class PolicyGroup(click.Group):
@@ -25,79 +23,157 @@ class ActuatorGroup(click.Group):
     def list_commands(self, ctx):
         return ["move", "torque", "zero", "dump"]
 
+class MainGroup(click.Group):
+    def format_help(self, ctx, formatter):
+        # Customize the help output
+        formatter.write("KOS Command Line Interface\n\n")
+        formatter.write("Usage:\n")
+        formatter.write("  kos <robot_name> service    Start service for a robot\n")
+        formatter.write("  kos <robot_name> inference  Run inference for a robot\n\n")
+        formatter.write("Built-in commands:\n")
+        formatter.write("  kos policy                  Policy operations\n")
+        formatter.write("  kos status                  Show system status\n")
+        formatter.write("  kos actuator                Actuator operations\n")
+        formatter.write("  kos test                    Run tests\n")
+        
+        # Add options section
+        formatter.write("\nOptions:\n")
+        formatter.write("  -h, --help                  Show this message and exit.\n")
+    
+    def get_help_option(self, ctx):
+        # This is needed to prevent Click from showing default help
+        # Return the help option object
+        help_options = self.get_help_option_names(ctx)
+        if not help_options or not self.add_help_option:
+            return
+        
+        def show_help(ctx, param, value):
+            if value and not ctx.resilient_parsing:
+                # When help is triggered, use our custom formatter directly
+                formatter = ctx.make_formatter()
+                self.format_help(ctx, formatter)
+                click.echo(formatter.getvalue().rstrip("\n"), color=ctx.color)
+                ctx.exit()
+        
+        return click.Option(
+            help_options,
+            is_flag=True,
+            is_eager=True,
+            expose_value=False,
+            callback=show_help,
+            help='Show this message and exit.',
+        )
+    
+    def get_command(self, ctx, cmd_name):
+        # First, try to get built-in commands
+        cmd = super(MainGroup, self).get_command(ctx, cmd_name)
+        if cmd is not None:
+            return cmd
+        
+        # If not a built-in command, assume it's a robot name
+        # Create a new command group for this robot
+        @click.group(cmd_name, help=f"Commands for robot name: '{cmd_name}'")
+        def robot_group():
+            """Robot-specific commands."""
+            # Load robot metadata
+            metadata_manager = RobotMetadata.get_instance()
+            metadata_manager.load_model_metadata(cmd_name)
+        
+        @robot_group.command("service")
+        def robot_service():
+            """Start the KOS service for this robot."""
+            from kos_zbot.kos import main as service_main
+            service_main()
+
+        @robot_group.command("inference")
+        @click.option(
+            "--model", type=click.Path(exists=True), help="Path to the policy model file"
+        )
+        @click.option(
+            "--action-scale",
+            type=float,
+            default=0.1,
+            show_default=True,
+            help="Scale factor for model outputs (0.0 to 1.0)",
+        )
+        @click.option(
+            "--episode-length",
+            type=float,
+            default=30.0,
+            show_default=True,
+            help="Run episode length in seconds",
+        )
+        @click.option(
+            "--device",
+            type=str,
+            default="/dev/ttyAMA5",
+            show_default=True,
+            help="Serial device for actuator controller",
+        )
+        @click.option(
+            "--baudrate",
+            type=int,
+            default=1000000,
+            show_default=True,
+            help="Serial baudrate for actuator controller",
+        )
+        @click.option(
+            "--rate", type=int, default=50, show_default=True, help="Control loop rate in Hz"
+        )
+        def robot_inference(model, action_scale, episode_length, device, baudrate, rate):
+            """Run a dedicated inference loop for this robot."""
+            from kos_zbot.inference import run_policy_loop
+            asyncio.run(
+                run_policy_loop(
+                    model_file=model,
+                    action_scale=action_scale,
+                    episode_length=episode_length,
+                    device=device,
+                    baudrate=baudrate,
+                    rate=rate,
+                )
+            )
+        
+        # Use the same custom help approach for robot group
+        def show_robot_help(ctx, param, value):
+            if value and not ctx.resilient_parsing:
+                formatter = ctx.make_formatter()
+                formatter.write(f"Robot: {cmd_name}\n\n")
+                formatter.write("Commands:\n")
+                formatter.write("  service     Start the KOS service for this robot\n")
+                formatter.write("  inference   Run a dedicated inference loop for this robot\n\n")
+                formatter.write("Examples:\n")
+                formatter.write(f"  kos {cmd_name} service\n")
+                formatter.write(f"  kos {cmd_name} inference --model=path/to/model --action-scale=0.1\n")
+                
+                formatter.write("\nOptions:\n")
+                formatter.write("  -h, --help  Show this message and exit.\n")
+                click.echo(formatter.getvalue().rstrip("\n"), color=ctx.color)
+                ctx.exit()
+        
+        # Add custom help option to robot group
+        help_option = click.Option(
+            ['-h', '--help'],
+            is_flag=True,
+            is_eager=True,
+            expose_value=False,
+            callback=show_robot_help,
+            help='Show this message and exit.',
+        )
+        robot_group.params.append(help_option)
+        
+        return robot_group
 
 @click.group(
     cls=MainGroup,
     invoke_without_command=True,
     no_args_is_help=True,
-    context_settings={"help_option_names": ["-h", "--help"]},
-    help=(
-        "KOS ZBot Command Line Interface.\n\n"
-        "IMPORTANT: You must run 'kos service' before using any other commands."
-    ),
+    context_settings={"help_option_names": ["-h", "--help"]}
 )
 def cli():
-    """Main entry point for the KOS ZBot CLI."""
+    """KOS Command Line Interface."""
     pass
 
-
-@cli.command()
-@click.option(
-    "--model", type=click.Path(exists=True), help="Path to the policy model file"
-)
-@click.option(
-    "--action-scale",
-    type=float,
-    default=0.1,
-    show_default=True,
-    help="Scale factor for model outputs (0.0 to 1.0)",
-)
-@click.option(
-    "--episode-length",
-    type=float,
-    default=30.0,
-    show_default=True,
-    help="Run episode length in seconds",
-)
-@click.option(
-    "--device",
-    type=str,
-    default="/dev/ttyAMA5",
-    show_default=True,
-    help="Serial device for actuator controller",
-)
-@click.option(
-    "--baudrate",
-    type=int,
-    default=1000000,
-    show_default=True,
-    help="Serial baudrate for actuator controller",
-)
-@click.option(
-    "--rate", type=int, default=50, show_default=True, help="Control loop rate in Hz"
-)
-def inference(model, action_scale, episode_length, device, baudrate, rate):
-    """Run a dedicated inference loop for a given policy."""
-    from kos_zbot.inference import run_policy_loop
-
-    asyncio.run(
-        run_policy_loop(
-            model_file=model,
-            action_scale=action_scale,
-            episode_length=episode_length,
-            device=device,
-            baudrate=baudrate,
-            rate=rate,
-        )
-    )
-
-
-@cli.command()
-def service():
-    """Start the KOS service."""
-    from kos_zbot.kos import main as service_main
-
-    service_main()
 
 
 @cli.group("policy", cls=PolicyGroup, help="Policy deployment operations.")

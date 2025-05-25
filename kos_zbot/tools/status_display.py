@@ -4,6 +4,7 @@ import time
 import queue
 import argparse
 from rich.console import Console, Group
+from rich.columns import Columns
 from rich.table import Table
 from rich.live import Live
 from rich.rule import Rule
@@ -171,26 +172,26 @@ def make_latency_table(stats: dict) -> Table:
     return tbl
 
 def make_calib_table(calib_state) -> Table:
-    tbl = Table(title="IMU Calibration", show_header=True, header_style="bold green")
+    tbl = Table(title="IMU Calibration", show_header=True, header_style="bold blue")
     tbl.add_column("Component", justify="left")
     tbl.add_column("Value", justify="right")
     if calib_state:
-        for k, v in calib_state.items():
-            tbl.add_row(str(k), str(v))
+        order = ["sys", "accel", "gyro", "mag"]
+        for key in order:
+            if key in calib_state:
+                tbl.add_row(str(key), str(calib_state[key]))
     return tbl
 
 def init_grid(states, imu_vals, imu_quat, imu_calib, scale: float, latency_stats: dict) -> Table:
     grid = Table.grid()
-    imu_group = Group(
+    imu_group = Columns([
         make_imu_table(SimpleNamespace(**imu_vals), SimpleNamespace(**imu_quat)),
         make_calib_table(imu_calib)
-    )
+    ])
     latency_table = make_latency_table(latency_stats)
 
-    grid.add_row(
-        make_table([SimpleNamespace(**d) for d in states], scale),
-        imu_group,
-    )
+    grid.add_row(imu_group)
+    grid.add_row(make_table([SimpleNamespace(**d) for d in states], scale),)
     grid.add_row(latency_table)
     return grid
 

@@ -593,7 +593,7 @@ class SCSMotorController:
             for actuator_id in list(self.actuator_ids):
                 self._record_fault(
                     actuator_id,
-                    f"groupsync read: {self.packet_handler.getTxRxResult(scs_comm_result)}",
+                    f"{self.packet_handler.getTxRxResult(scs_comm_result)}",
                 )
             return
 

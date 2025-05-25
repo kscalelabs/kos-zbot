@@ -460,12 +460,16 @@ class SCSMotorController:
             700, 10, 5
         )  # Increase the gen-2 frequency to mitigate pileup ? TODO: investigate
 
-        self._read_states(ignore_errors=True) # TODO: First call on the bus seems to take longer than expected, this adds an error on startup that we want to ignore
-
-        next_time = time.monotonic_ns()
+        init_time = time.monotonic_ns()
         while self.running:
             # self.latency_tracker.record_iteration()
             now_ns = time.monotonic_ns()
+
+            if now_ns - init_time < 1_000_000_000:  # Wait 1 second after init
+                self._read_states(ignore_errors=True)
+                time.sleep(0.01)
+                next_time = time.monotonic_ns()
+                continue
 
             # ── CONFIG‑GRACE CHECK ──────────────────────────────
             in_grace = (now_ns - self.last_config_time * 1e9) < (
@@ -482,6 +486,9 @@ class SCSMotorController:
                     self.log.error(f"error in update loop: {e}")
                 finally:
                     self._control_lock.release()
+            elif not self._control_lock.locked():
+                self._read_states(ignore_errors=True)
+            
             # else:
             #    self.latency_tracker.reset()
 
@@ -749,13 +756,8 @@ class SCSMotorController:
                         position = limits['max_angle_deg']
                         self.log.warn(f"Clipped position for actuator {actuator_id} ({limits['joint_name']}) from {original_position:.2f}° to {position:.2f}° (max limit)")
 
-                counts = self._degrees_to_counts(position, offset=180.0)
-                self.next_position_batch[actuator_id] = countsts
-                velocity_counts = self._degrees_to_counts(
-                    targets["velocity"], offset=0.0
-                )
-                self.next_velocity_batch[actuator_id] = velocity_counts
-
+                self.next_position_batch[actuator_id] = self._degrees_to_counts(position, offset=180.0)
+                self.next_velocity_batch[actuator_id] = self._degrees_to_counts(targets["velocity"], offset=0.0)
                 self.commanded_ids.add(actuator_id)
 
     def get_position(self, actuator_id: int) -> Optional[float]:

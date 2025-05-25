@@ -17,6 +17,22 @@ from kos_zbot.utils.quat import rotate_vector_by_quat, GRAVITY_CARTESIAN
 
 BAR_WIDTH = 30
 
+import logging
+import os
+
+# Add this at the top of the file, after the imports
+def setup_debug_logging():
+    """Setup debug logging to a file"""
+    log_file = "/tmp/status_display_debug.log"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, mode='w'),  # Overwrite each time
+        ]
+    )
+    return logging.getLogger(__name__)
+debug_logger = setup_debug_logging()
 
 def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
     """
@@ -45,8 +61,10 @@ def format_bar(pos: float, width: int = BAR_WIDTH, scale: float = 180.0) -> str:
 def make_table(states: list, scale: float = 180.0) -> Table:
     tbl = Table(title="Actuator State", show_header=True, header_style="bold magenta")
     tbl.add_column("ID", justify="right", no_wrap=True)
+    tbl.add_column("Min", justify="right")
+    tbl.add_column("Max", justify="right")
     tbl.add_column("Pos °", justify="right")
-    tbl.add_column("Vel °/s", justify="right")  # <-- New velocity column
+    tbl.add_column("Vel °/s", justify="right")
     tbl.add_column(f"Position (±{scale}°)", no_wrap=True)
     tbl.add_column("Torque", justify="center")
     tbl.add_column("Last Fault", justify="left")
@@ -56,6 +74,11 @@ def make_table(states: list, scale: float = 180.0) -> Table:
     for s in states:
         bar = format_bar(s.position, BAR_WIDTH, scale)
         torque = "[green]ON[/]" if s.online else "[red]OFF[/]"
+        min_pos = getattr(s, "min_position", None)
+        max_pos = getattr(s, "max_position", None)
+        min_str = f"{min_pos:6.1f}" if min_pos is not None else "N/A"
+        max_str = f"{max_pos:6.1f}" if max_pos is not None else "N/A"
+
         if s.faults and len(s.faults) == 3:
             last_fault, fault_count, t = s.faults
             try:
@@ -70,6 +93,8 @@ def make_table(states: list, scale: float = 180.0) -> Table:
         velocity = getattr(s, "velocity", 0.0)
         tbl.add_row(
             str(s.actuator_id),
+            min_str,
+            max_str,
             f"{s.position:6.2f}",
             f"{velocity:6.2f}",  # <-- Velocity value
             bar,
@@ -183,10 +208,12 @@ def actuator_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
                     "velocity":    s.velocity,
                     "online":      s.online,
                     "faults":      list(s.faults),
+                    "min_position": getattr(s, "min_position", None),
+                    "max_position": getattr(s, "max_position", None),
                 } for s in resp.states]
                 if out_q.full(): out_q.get_nowait()
                 out_q.put(serial_states)
-            except Exception:
+            except Exception as e:
                 await asyncio.sleep(period)
             else:
                 await asyncio.sleep(period)
@@ -285,6 +312,7 @@ async def show_status(scale: float = 180.0,
 
     # build initial grid once
     initial_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale, latency_stats)
+
     with Live(Group(title, initial_grid), console=console,
               refresh_per_second=render_rate, screen=True) as live:
 

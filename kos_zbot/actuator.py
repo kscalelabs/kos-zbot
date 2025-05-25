@@ -7,6 +7,7 @@ import sched
 import platform
 from tabulate import tabulate  # Add this import at the top of the file
 from kos_zbot.utils.logging import get_logger
+from kos_zbot.utils.metadata import RobotMetadata
 
 # from kos_zbot.utils.latency import get_tracker
 from tqdm import tqdm
@@ -218,6 +219,19 @@ class SCSMotorController:
             self.log.error("no actuators found")
             raise NoActuatorsFoundError("no actuators found")
 
+        self.metadata = RobotMetadata.get_instance().get_metadata()
+        self.actuator_limits = {}
+        for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
+            actuator_id = joint_metadata.id
+            if actuator_id is not None:
+                self.actuator_limits[actuator_id] = {
+                    'min_angle_deg': float(joint_metadata.min_angle_deg) if joint_metadata.min_angle_deg is not None else None,
+                    'max_angle_deg': float(joint_metadata.max_angle_deg) if joint_metadata.max_angle_deg is not None else None,
+                    'joint_name': joint_name
+                }
+        
+        self.log.info(f"Loaded angle limits for {len(self.actuator_limits)} actuators")
+
         with self._control_lock:
             for actuator in available_actuators:
                 self._add_actuator(actuator["id"])
@@ -280,6 +294,21 @@ class SCSMotorController:
     def get_faults(self, actuator_id: int):
         """Retrieve fault history for a given actuator."""
         return self.fault_history.get(actuator_id)
+
+    def get_limits(self, actuator_id: int) -> Optional[dict]:
+        """Get current min/max position limits for a specific actuator"""
+        if actuator_id not in self.actuator_ids:
+            return None
+        
+        # Get limits from metadata if available
+        if actuator_id in self.actuator_limits:
+            limits = self.actuator_limits[actuator_id]
+            return {
+                "min_position": limits['min_angle_deg'],
+                "max_position": limits['max_angle_deg']
+            }
+        
+        return None
 
     def configure_actuator(self, actuator_id: int, config: dict):
         """Configure actuator parameters. Only parameters present in config are written."""
@@ -703,11 +732,23 @@ class SCSMotorController:
                 self.next_velocity_batch = {}
 
             for actuator_id, targets in target_dict.items():
-                # Convert position to counts
-                counts = self._degrees_to_counts(targets["position"], offset=180.0)
-                self.next_position_batch[actuator_id] = counts
+                position = targets["position"]
 
-                # Convert velocity to counts
+                # Apply angle limits if available for this actuator
+                if actuator_id in self.actuator_limits:
+                    limits = self.actuator_limits[actuator_id]
+                    original_position = position
+                    
+                    if limits['min_angle_deg'] is not None and position < limits['min_angle_deg']:
+                        position = limits['min_angle_deg']
+                        self.log.warn(f"Clipped position for actuator {actuator_id} ({limits['joint_name']}) from {original_position:.2f}° to {position:.2f}° (min limit)")
+                    
+                    if limits['max_angle_deg'] is not None and position > limits['max_angle_deg']:
+                        position = limits['max_angle_deg']
+                        self.log.warn(f"Clipped position for actuator {actuator_id} ({limits['joint_name']}) from {original_position:.2f}° to {position:.2f}° (max limit)")
+
+                counts = self._degrees_to_counts(position, offset=180.0)
+                self.next_position_batch[actuator_id] = countsts
                 velocity_counts = self._degrees_to_counts(
                     targets["velocity"], offset=0.0
                 )

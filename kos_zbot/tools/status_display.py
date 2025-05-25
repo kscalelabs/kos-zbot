@@ -8,8 +8,6 @@ from rich.columns import Columns
 from rich.table import Table
 from rich.live import Live
 from rich.rule import Rule
-from rich.panel import Panel
-from rich.align import Align
 from types import SimpleNamespace
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async
@@ -184,15 +182,6 @@ def make_calib_table(calib_state) -> Table:
                 tbl.add_row(str(key), str(calib_state[key]))
     return tbl
 
-def create_disconnected_overlay(content):
-    """Wrap content with disconnection styling."""
-    disconnected_msg = Panel(
-        Align.center("[bold red]DISCONNECTED FROM KOS\n[white]Retrying connection..."),
-        style="red",
-        border_style="red"
-    )
-    return Group(disconnected_msg, content)
-
 def init_grid(states, imu_vals, imu_quat, imu_calib, scale: float, latency_stats: dict) -> Table:
     grid = Table.grid()
     imu_group = Columns([
@@ -211,14 +200,9 @@ def actuator_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
     async def poll():
         client = KOS(ip)
         period = 1.0 / freq
-        retry_delay = 3.0
-        timeout = 3.0
         while True:
             try:
-                resp = await asyncio.wait_for(
-                    client.actuator.get_actuators_state(), 
-                    timeout=timeout
-                )
+                resp = await client.actuator.get_actuators_state()
                 serial_states = [{
                     "actuator_id": s.actuator_id,
                     "position":    s.position,
@@ -228,21 +212,11 @@ def actuator_worker(out_q: mp.Queue, freq: float = 30.0, ip: str = "127.0.0.1"):
                     "min_position": getattr(s, "min_position", None),
                     "max_position": getattr(s, "max_position", None),
                 } for s in resp.states]
-                if out_q.full(): 
-                    out_q.get_nowait()
-                out_q.put(("connected", serial_states))
+                if out_q.full(): out_q.get_nowait()
+                out_q.put(serial_states)
             except Exception as e:
-                 # Connection failed, signal disconnection and recreate client
-                if out_q.full(): 
-                    out_q.get_nowait()
-                out_q.put(("disconnected", str(e)))
-                try:
-                    await client.close()
-                except:
-                    pass
-                client = KOS(ip)
-                await asyncio.sleep(retry_delay)
-            finally:
+                await asyncio.sleep(period)
+            else:
                 await asyncio.sleep(period)
 
     loop = asyncio.new_event_loop()
@@ -308,7 +282,6 @@ async def show_status(scale: float = 180.0,
     console.clear()
     title = Rule("[bold white]K-OS Zbot v0.1 Status[/]")
 
-    connected = True
     act_q = mp.Queue(maxsize=1)
     imu_q = mp.Queue(maxsize=1)
     latency_q = mp.Queue(maxsize=1)
@@ -348,17 +321,8 @@ async def show_status(scale: float = 180.0,
         while True:
             updated = False
             try:
-                status, data = act_q.get_nowait() 
-                if status == "disconnected":
-                    if connected:
-                        connected = False
-                        updated = True
-                else:
-                    # It's actual state data
-                    states = data
-                    if not connected:
-                        connected = True
-                    updated = True
+                states = act_q.get_nowait() 
+                updated = True
             except queue.Empty:
                 pass
 
@@ -379,11 +343,7 @@ async def show_status(scale: float = 180.0,
 
             if updated:
                 new_grid = init_grid(states, imu_vals, imu_quat, imu_calib, scale, latency_stats)
-                if connected: # TODO: Fix this, not displaying when kos service closes
-                    current_grid = new_grid
-                else:
-                    current_grid = create_disconnected_overlay(new_grid)
-                live.update(Group(title, current_grid))
+                live.update(Group(title, new_grid))
                 last_states = states
 
             await asyncio.sleep(render_interval)

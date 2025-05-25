@@ -458,12 +458,13 @@ class SCSMotorController:
         self.log.info(f"feetech _update_loop running on CPUs: {sorted(allowed)}")
         gc.set_threshold(
             700, 10, 5
-        )  # Increase the gen-2 requency to mitigate pileup ? TODO: investigate
+        )  # Increase the gen-2 frequency to mitigate pileup ? TODO: investigate
+
+        self._read_states(ignore_errors=True) # TODO: First call on the bus seems to take longer than expected, this adds an error on startup that we want to ignore
 
         next_time = time.monotonic_ns()
         while self.running:
             # self.latency_tracker.record_iteration()
-            # -- Perform Work --
             now_ns = time.monotonic_ns()
 
             # ── CONFIG‑GRACE CHECK ──────────────────────────────
@@ -578,7 +579,7 @@ class SCSMotorController:
         for actuator_id in sorted(self.actuator_ids):
             self._get_params(actuator_id)
 
-    def _read_states(self):
+    def _read_states(self, ignore_errors: bool = False):
         """Read current positions and velocities from all servos"""
         current_time = time.monotonic()
         new_positions = {}
@@ -587,14 +588,15 @@ class SCSMotorController:
         # Attempt group sync read
         scs_comm_result = self.group_sync_read.txRxPacket()
         if scs_comm_result != 0:
-            self.log.error(
-                f"GroupSyncRead: {self.packet_handler.getTxRxResult(scs_comm_result)}"
-            )
-            for actuator_id in list(self.actuator_ids):
-                self._record_fault(
-                    actuator_id,
-                    f"{self.packet_handler.getTxRxResult(scs_comm_result)}",
+            if not ignore_errors:
+                self.log.error(
+                    f"GroupSyncRead: {self.packet_handler.getTxRxResult(scs_comm_result)}"
                 )
+                for actuator_id in list(self.actuator_ids):
+                    self._record_fault(
+                        actuator_id,
+                        f"{self.packet_handler.getTxRxResult(scs_comm_result)}",
+                    )
             return
 
         # If group sync read succeeded, check individual servos

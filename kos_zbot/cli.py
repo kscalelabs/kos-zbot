@@ -3,7 +3,6 @@ import asyncio
 from tabulate import tabulate
 from pykos import KOS
 from kos_zbot.utils.metadata import RobotMetadata
-from kos_zbot.inference import run_policy_loop  
 from kos_zbot.tools.status_display import show_status
 from kos_zbot.tools.actuator_dump import actuator_dump
 from kos_zbot.tools.actuator_move import actuator_move

@@ -26,7 +26,8 @@ setup(
         'protobuf==5.29.0',
         'click',
         'rich',
-        'RPi.GPIO'
+        'RPi.GPIO',
+        'kscale'
     ],
     entry_points={
         'console_scripts': [

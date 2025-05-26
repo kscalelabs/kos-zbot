@@ -1,6 +1,6 @@
 {
-    "microphone_id": 1,
-    "speaker_id": 2,
+    "microphone_id": "Device",
+    "speaker_id": "sndrpigooglevoi",
     "volume": 0.35,
     "debug": false,
     "environment": "default"

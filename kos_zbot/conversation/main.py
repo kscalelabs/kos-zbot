@@ -40,6 +40,7 @@ def main() -> None:
         
         # Initialize voice system
         logger.info("\nInitializing voice system...")
+
         voice = Voice(
             openai_api_key=openai_api_key,
             config=None,

@@ -4,8 +4,7 @@ from .audio import AudioPlayer
 from .recorder import AudioRecorder
 from .processor import AudioProcessor
 from pyee.asyncio import AsyncIOEventEmitter
-from .config import get_config, save_config
-
+from .config import get_config, save_config, find_device_by_name
 
 class Voice(AsyncIOEventEmitter):
     """Manages voice interactions with OpenAI's API.
@@ -43,8 +42,20 @@ class Voice(AsyncIOEventEmitter):
         else:
             self.config = config
 
-        microphone_id = self.config.get("microphone_id")
-        speaker_id = self.config.get("speaker_id")
+        if self.config.get("microphone_id") is int:
+            microphone_id = self.config.get("microphone_id")
+        elif self.config.get("microphone_id") is str:
+            microphone_id = find_device_by_name(self.config.get("microphone_id"), "microphone")
+        else:
+            raise ValueError("Invalid microphone ID")
+
+        if self.config.get("speaker_id") is int:
+            speaker_id = self.config.get("speakere_id")
+        elif self.config.get("speaker_id") is str:
+            speaker_id = find_device_by_name(self.config.get("speaker_id"), "speaker")
+        else:
+            raise ValueError("Invalid speaker ID")
+
         volume = self.config.get("volume", 0.35)
         debug = self.config.get("debug", False)
 

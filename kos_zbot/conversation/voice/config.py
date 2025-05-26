@@ -57,6 +57,36 @@ def get_available_speakers():
     return devices
 
 
+def find_device_by_name(device_name, device_type="speaker"):
+    """Find device ID by name (supports partial matching).
+
+    Args:
+        device_name (str): Name or partial name of the device to find
+        device_type (str): Type of device ('microphone' or 'speaker')
+
+    Returns:
+        int or None: Device ID if found, None otherwise
+    """
+    if device_type == "microphone":
+        devices = get_available_microphones()
+    if device_type == "speaker":
+        devices = get_available_speakers()
+    else:
+        raise ValueError("Invalid device type")
+    
+    # First try exact match (case insensitive)
+    for device in devices:
+        if device["name"].lower() == device_name.lower():
+            return device["id"]
+    
+    # Then try partial match (case insensitive)
+    for device in devices:
+        if device_name.lower() in device["name"].lower():
+            return device["id"]
+    
+    return None
+
+
 def select_default_device(devices, device_type):
     """Select a default device based on available devices.
 

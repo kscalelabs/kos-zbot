@@ -6,34 +6,47 @@ import signal
 
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async
-from kos_zbot.tools.actuator_move import actuator_move as move
-from kos_zbot.tests.sync_wave import get_logger
 
 """
 Does a salute script.
-!!! Currently assumes the robot is in "spread out" position for sync wave. Arms ~ 20 degrees abducted.
 Nat Friedman approved.
 """
 
+def get_logger(name):
+    logger = logging.getLogger(name)
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)  # Or DEBUG for more verbosity
+    return logger
+
 
 # Freq in 1/s, Amplitude in degrees
-async def salute(kos_ip = "127.0.0.1",
+async def salute(
+    actuator_ids: list[int] = [11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46],
+    kos_ip: str = "127.0.0.1",
+    # Pattern configuration
     squeeze_duration:int=5, 
     squeeze_freq:float= 1, 
     squeeze_amplitude:float=15,
-    sample_rate:float=50.0,
+    squeeze_sample_rate:float=50.0,
+    # Motor parameters
+    kp: float = 20.0,
+    kd: float = 5.0,
+    ki: float = 0.0,
+    max_torque: float = 100.0,
+    acceleration: float = 0.0,
+    torque_enabled: bool = True,
 ):
-    COMMAND_ACTUATOR_IDS=(21,23,24)
-    ALL = (11,12,13,14,21,22,23,24,31,32,33,34,35,36,41,42,43,44,45,46)
+    
+    log = get_logger(__name__)
 
-    zero_commands = []
-    for aid in ALL:
-        zero_commands.append({"actuator_id": aid, "position": 0})
-
-    # Startup, copied from sync_wave.py
     if await kos_ready_async(kos_ip):
         kos = KOS(kos_ip)
     else:
+        log.error("KOS service not available at %s:50051", kos_ip)
         return
     
     interrupted = False
@@ -46,21 +59,33 @@ async def salute(kos_ip = "127.0.0.1",
         state_resp = await kos.actuator.get_actuators_state()
         available_ids = {s.actuator_id for s in state_resp.states}
     except Exception as e:
-        return
-    
-    # Assume position
+        log.error{f"No actuators available: {e}"}
 
+    valid_actuator_ids = [aid for aid in actuator_ids if aid in available_ids]
+    missing_actuators = [aid for aid in actuator_ids if aid not in available_ids]
+    if missing_actuators:
+        log.warning(f"Skipping non-existent actuators: {missing_actuators}")
+    if not valid_actuator_ids:
+        log.error("No valid actuators to test. Exiting")
+        return
+
+    # Assume position
+    zero_commands = []
+    for aid in available_ids:
+        zero_commands.append({"actuator_id": aid, "position": 0}) 
+    
     await kos.actuator.command_actuators(zero_commands)
 
     await asyncio.sleep(0.5)
     
     await kos.actuator.command_actuators([
         {"actuator_id": 21, "position": -150},
+        {"acutator_id": 22, "position": -20},
         {"actuator_id": 23, "position": -60}
     ])
 
    # Hand squeezing   
-    t = np.arange(0, squeeze_duration, 1 / sample_rate)
+    t = np.arange(0, squeeze_duration, 1 / squeeze_sample_rate)
 
     start_time = time.time()
 

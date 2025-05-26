@@ -468,6 +468,98 @@ def sync_step():
     asyncio.run(run_step_test(ACTUATOR_IDS, **TEST_CONFIG))
 
 
+@cli.group(cls=click.Group, help="Run demonstration sequences.")
+def demo():
+    """Demo commands."""
+    pass
+
+@demo.command()
+@click.option(
+    "--duration",
+    type=float,
+    default=10.0,
+    show_default=True,
+    help="Duration of the hand wave in seconds",
+)
+@click.option(
+    "--amplitude",
+    type=float,
+    default=15.0,
+    show_default=True,
+    help="Wave amplitude in degrees",
+)
+@click.option(
+    "--frequency",
+    type=float,
+    default=1.5,
+    show_default=True,
+    help="Wave frequency in Hz",
+)
+@click.option(
+    "--ip",
+    type=str,
+    default="127.0.0.1",
+    show_default=True,
+    help="KOS service IP address",
+)
+def hand_wave(duration, amplitude, frequency, ip):
+    """Run a hand waving demonstration."""
+    import asyncio
+    from kos_zbot.tests.hello_wave import run_sine_test
+
+    # Hand actuator IDs (assuming these are the hand/arm actuators)
+    HAND_ACTUATOR_IDS = [11,12,13]
+    
+    HAND_WAVE_CONFIG = {
+        "kos_ip": ip,
+        "amplitude": amplitude,
+        "frequency": frequency,
+        "duration": 5,
+        "sample_rate": 50.0,
+        "start_pos": 0.0,
+        "sync_all": False,
+        "wave_patterns": {
+            "shoulder_pitch": {
+                "actuators": [11],
+                "amplitude": 5.0,
+                "frequency": 0.25,
+                "phase_offset": 0.0,
+                "freq_multiplier": 1.0,
+                "start_pos": 120.0,
+                "position_offset": 0.0,
+            },
+             "shoulder_roll": {
+                 "actuators": [12],
+                 "amplitude": 10.0,
+                 "frequency": 0.75,
+                 "phase_offset": 0.0,
+                 "freq_multiplier": 1.0,
+                 "start_pos": 0.0,
+                 "position_offset": 0.0,
+             },
+              "elbow_roll": {
+                 "actuators": [13],
+                 "amplitude": 10.0,
+                 "frequency": 1,
+                 "phase_offset": 90.0,
+                 "freq_multiplier": 1.0,
+                 "start_pos": 0.0,
+                 "position_offset": 0.0,
+             },
+        },
+        "kp": 15.0,
+        "kd": 3.0,
+        "ki": 0.0,
+        "max_torque": 50.0,  # Lower torque for gentle hand waving
+        "acceleration": 500.0,
+        "torque_enabled": True,
+    }
+    
+    click.echo(f"Starting hand wave demo for {duration} seconds...")
+    click.echo(f"Amplitude: {amplitude}°, Frequency: {frequency} Hz")
+    asyncio.run(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
+
+
 @test.command()
 def imu():
     """Run the IMU test."""

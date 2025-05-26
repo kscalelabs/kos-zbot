@@ -1,6 +1,6 @@
 {
-    "microphone_id": 2,
-    "speaker_id": 1,
+    "microphone_id": 1,
+    "speaker_id": 2,
     "volume": 0.35,
     "debug": false,
     "environment": "default"

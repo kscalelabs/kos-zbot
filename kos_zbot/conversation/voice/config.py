@@ -5,8 +5,8 @@ from pathlib import Path
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "microphone_name": "Device",
-    "speaker_name": "sndrpigooglevoi", 
+    "microphone_name": "USB PnP",
+    "speaker_name": "googlev", 
     "volume": 0.35,
     "debug": False,
     "environment": "default",

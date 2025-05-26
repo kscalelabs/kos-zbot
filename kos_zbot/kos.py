@@ -16,6 +16,7 @@ from kos_protos import (
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 from kos_zbot.policy import PolicyManager
+from kos_zbot.utils.metadata import RobotMetadata
 import logging
 import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
@@ -81,25 +82,24 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     async def CommandActuators(self, request, context):
         """Handle multiple actuator commands atomically."""
         try:
-             async with self.temporal_lock:
+            async with self.temporal_lock:
                 commands = [
                     {
                         "actuator_id": cmd.actuator_id,
                         "position": cmd.position,
-                        "velocity": cmd.velocity if cmd.HasField("velocity") else 0.0
+                        "velocity": cmd.velocity if cmd.HasField("velocity") else 0.0,
                     }
                     for cmd in request.commands
                 ]
                 servo_commands = {
                     cmd["actuator_id"]: {
                         "position": cmd["position"],
-                        "velocity": cmd["velocity"]
+                        "velocity": cmd["velocity"],
                     }
                     for cmd in commands
                     if cmd["actuator_id"] in self.actuator_controller.actuator_ids
                 }
                 self.actuator_controller.set_targets(servo_commands)
-
 
                 return actuator_pb2.CommandActuatorsResponse()
 
@@ -167,21 +167,23 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         position=0.0,
                         velocity=0.0,
                         online=False,
+                        torque_enabled=False,
                         faults=["servo not registered"],
-                        )
+                    )
                     states.append(state)
                     continue
 
                 torque_enabled = self.actuator_controller.get_torque_enabled(actuator_id)
                 state_dict = self.actuator_controller.get_state(actuator_id)
                 fault_info = self.actuator_controller.get_faults(actuator_id)
+                limits = self.actuator_controller.get_limits(actuator_id)
                 if fault_info is None:
                     faults = []
                 else:
                     faults = [
-                        str(fault_info['last_fault_message']),
-                        str(fault_info['total_faults']),
-                        str(int(fault_info['last_fault_time']))  # as integer timestamp
+                        str(fault_info["last_fault_message"]),
+                        str(fault_info["total_faults"]),
+                        str(int(fault_info["last_fault_time"])),  # as integer timestamp
                     ]
 
                 if state_dict is None:
@@ -193,13 +195,21 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                         faults=faults,
                     )
                 else:
-                    state = actuator_pb2.ActuatorStateResponse(
-                        actuator_id=actuator_id,
-                        position=state_dict.get("position", 0.0),
-                        velocity=state_dict.get("velocity", 0.0),
-                        online=torque_enabled,
-                        faults=faults,
-                    )
+                    state_kwargs = {
+                        "actuator_id": actuator_id,
+                        "position": state_dict.get("position", 0.0),
+                        "velocity": state_dict.get("velocity", 0.0),
+                        "online": torque_enabled,
+                        "torque_enabled": torque_enabled,
+                        "faults": faults,
+                    }
+                    if limits:
+                        if limits["min_position"] is not None:
+                            state_kwargs["min_position"] = limits["min_position"]
+                        if limits["max_position"] is not None:
+                            state_kwargs["max_position"] = limits["max_position"]
+                    
+                    state = actuator_pb2.ActuatorStateResponse(**state_kwargs)
 
                 states.append(state)
             return actuator_pb2.GetActuatorsStateResponse(states=states)
@@ -301,7 +311,9 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         except IMUNotAvailableError as e:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details(str(e))
-            return imu_pb2.IMUAdvancedValuesResponse(error=common_pb2.Error(message=str(e)))
+            return imu_pb2.IMUAdvancedValuesResponse(
+                error=common_pb2.Error(message=str(e))
+            )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -325,7 +337,9 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         except IMUNotAvailableError as e:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
             context.set_details(str(e))
-            return imu_pb2.GetCalibrationStateResponse(error=common_pb2.Error(message=str(e)))
+            return imu_pb2.GetCalibrationStateResponse(
+                error=common_pb2.Error(message=str(e))
+            )
         except Exception as e:
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(str(e))
@@ -340,6 +354,7 @@ class IMUService(imu_pb2_grpc.IMUServiceServicer):
         # The BNO055 handles its own zeroing/calibration, so this is a no-op
         return common_pb2.ActionResponse(success=True)
 
+
 class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
     def __init__(self, policy_manager: PolicyManager):
         super().__init__()
@@ -353,7 +368,7 @@ class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
                 policy_file=request.action,
                 action_scale=request.action_scale,
                 episode_length=request.episode_length,
-                dry_run=request.dry_run
+                dry_run=request.dry_run,
             )
             return policy_pb2.StartPolicyResponse()
         except Exception as e:
@@ -383,10 +398,21 @@ class PolicyService(policy_pb2_grpc.PolicyServiceServicer):
             context.set_details(str(e))
             return policy_pb2.GetStateResponse()
 
+
 async def serve(host: str = "0.0.0.0", port: int = 50051):
     """Start the gRPC server."""
     log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
+
+    # Check if we have robot metadata available
+    try:
+        metadata_manager = RobotMetadata.get_instance()
+        metadata = await metadata_manager.get_metadata_async()
+        
+        if metadata_manager.robot_name:
+            log.info(f"Using metadata for robot: {metadata_manager.robot_name}")
+    except ImportError:
+        log.warning("robot metadata module not available")
 
     # Initialize hardware
     try:
@@ -423,9 +449,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
         imu_pb2_grpc.add_IMUServiceServicer_to_server(imu_service, server)
 
         policy_service = PolicyService(policy_manager)
-        policy_pb2_grpc.add_PolicyServiceServicer_to_server(
-            policy_service, server
-        )
+        policy_pb2_grpc.add_PolicyServiceServicer_to_server(policy_service, server)
 
         server.add_insecure_port(f"{host}:{port}")
         await server.start()

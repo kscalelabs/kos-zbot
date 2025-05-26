@@ -9,9 +9,12 @@ import busio
 import adafruit_bno055
 from kos_zbot.utils.logging import get_logger
 
+
 class IMUNotAvailableError(Exception):
     """Raised when the IMU sensor is not available."""
+
     pass
+
 
 def _sensor_proc(q: Queue, rate_hz: int):
     """
@@ -22,7 +25,12 @@ def _sensor_proc(q: Queue, rate_hz: int):
     period = 1.0 / rate_hz
     next_deadline = time.monotonic()
 
-     # Initialize I2C inside the child process
+    # Initialize latency tracker
+    period_ns = int(period * 1e9)
+    # latency_tracker = get_tracker("imu_loop")
+    # latency_tracker.set_period(period_ns)
+
+    # Initialize I2C inside the child process
     try:
         i2c = busio.I2C(board.SCL, board.SDA)
         sensor = adafruit_bno055.BNO055_I2C(i2c)
@@ -31,10 +39,11 @@ def _sensor_proc(q: Queue, rate_hz: int):
         return
 
     while True:
+        # latency_tracker.record_iteration()
         now = time.monotonic()
         if now > next_deadline:
             overrun_ms = (now - next_deadline) * 1000.0
-            #if overrun_ms > 0.5:
+            # if overrun_ms > 0.5:
             #    log.warning(
             #        f"Timing overrun: {overrun_ms:.2f}ms (target: {period*1000:.2f}ms)"
             #    )
@@ -90,11 +99,11 @@ class BNO055Manager:
         self._stop_reader = threading.Event()
         # Buffer holds last valid readings
         self._buffer = {
-            'accel': (0.0, 0.0, 0.0),
-            'gyro':  (0.0, 0.0, 0.0),
-            'mag':   (0.0, 0.0, 0.0), 
-            'quat':  (0.0, 0.0, 0.0, 0.0), 
-            'calib': (0, 0, 0, 0),  # sys, gyro, accel, mag
+            "accel": (0.0, 0.0, 0.0),
+            "gyro": (0.0, 0.0, 0.0),
+            "mag": (0.0, 0.0, 0.0),
+            "quat": (0.0, 0.0, 0.0, 0.0),
+            "calib": (0, 0, 0, 0),  # sys, gyro, accel, mag
         }
         self._lock = threading.Lock()
 
@@ -102,9 +111,7 @@ class BNO055Manager:
         """Start sensor process and reader thread."""
         if not (self._process and self._process.is_alive()):
             self._process = Process(
-                target=_sensor_proc,
-                args=(self._queue, self.update_rate),
-                daemon=True
+                target=_sensor_proc, args=(self._queue, self.update_rate), daemon=True
             )
             self._process.start()
             # Wait briefly for error or first data
@@ -124,20 +131,15 @@ class BNO055Manager:
                 self._imu_error_msg = "IMU did not respond in time"
                 self.log.error("IMU did not respond in time")
                 return
-            self.log.info("Sensor process started")
-        else:
-            self.log.warning("Sensor process already running")
+            self.log.info("IMU process started")
+
 
         if not (self._reader_thread and self._reader_thread.is_alive()):
             self._stop_reader.clear()
             self._reader_thread = threading.Thread(
-                target=self._reader_loop,
-                daemon=True
+                target=self._reader_loop, daemon=True
             )
             self._reader_thread.start()
-            self.log.info("Reader thread started")
-        else:
-            self.log.warning("Reader thread already running")
 
     def stop(self):
         """Stop sensor process and reader thread."""
@@ -145,34 +147,32 @@ class BNO055Manager:
             self._process.terminate()
             self._process.join()
             self._process = None
-            self.log.info("Sensor process stopped")
 
         if self._reader_thread:
             self._stop_reader.set()
             self._reader_thread.join()
             self._reader_thread = None
-            self.log.info("Reader thread stopped")
 
     def _reader_loop(self):
         """Continuously drain queue; update buffer only with fully valid readings."""
         while not self._stop_reader.is_set():
             try:
-                accel, gyro, mag, quat, calib  = self._queue.get(timeout=0.1)
+                accel, gyro, mag, quat, calib = self._queue.get(timeout=0.1)
                 with self._lock:
                     if accel is not None and all(v is not None for v in accel):
-                        self._buffer['accel'] = accel
+                        self._buffer["accel"] = accel
                     if gyro is not None and all(v is not None for v in gyro):
-                        self._buffer['gyro'] = gyro
+                        self._buffer["gyro"] = gyro
                     if mag is not None and all(v is not None for v in mag):
-                        self._buffer['mag'] = mag
+                        self._buffer["mag"] = mag
                     if quat is not None and all(v is not None for v in quat):
-                        self._buffer['quat'] = quat
+                        self._buffer["quat"] = quat
                     if calib is not None and all(v is not None for v in calib):
-                        self._buffer['calib'] = calib
+                        self._buffer["calib"] = calib
             except queue.Empty:
                 continue
             except Exception:
-                self.log.exception("Error in reader thread")
+                self.log.error("Error in reader thread")
 
     def get_values(self):
         """Get latest accel, gyro, mag."""
@@ -180,9 +180,22 @@ class BNO055Manager:
             raise IMUNotAvailableError(self._imu_error_msg or "IMU not available")
         with self._lock:
             return (
-                self._buffer['accel'],
-                self._buffer['gyro'],
-                self._buffer['mag'],
+                self._buffer["accel"],
+                self._buffer["gyro"],
+                self._buffer["mag"],
+            )
+
+    def get_latest_values(self):
+        """Get latest accel, gyro, mag."""
+        if not self._imu_available:
+            raise IMUNotAvailableError(self._imu_error_msg or "IMU not available")
+        with self._lock:
+            return (
+                self._buffer["accel"],
+                self._buffer["gyro"],
+                self._buffer["mag"],
+                self._buffer["quat"],
+                self._buffer["calib"],
             )
 
     def get_quaternion(self):
@@ -190,14 +203,14 @@ class BNO055Manager:
         if not self._imu_available:
             raise IMUNotAvailableError(self._imu_error_msg or "IMU not available")
         with self._lock:
-            return self._buffer['quat']
+            return self._buffer["quat"]
 
     def get_calibration_status(self):
         """Get latest calibration status tuple (sys, gyro, accel, mag)."""
         if not self._imu_available:
             raise IMUNotAvailableError(self._imu_error_msg or "IMU not available")
         with self._lock:
-            return self._buffer['calib']
+            return self._buffer["calib"]
 
 
 if __name__ == "__main__":

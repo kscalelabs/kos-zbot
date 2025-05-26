@@ -101,9 +101,9 @@ class protocol_packet_handler(object):
         elif result == COMM_RX_WAITING:
             return "[TxRxResult] Now receiving status packet!"
         elif result == COMM_RX_TIMEOUT:
-            return "[TxRxResult] There is no status packet!"
+            return "[TxRxResult] RX Timeout (status packet)"
         elif result == COMM_RX_CORRUPT:
-            return "[TxRxResult] Incorrect status packet!"
+            return "[TxRxResult] RX corrupt (status packet)"
         elif result == COMM_NOT_AVAILABLE:
             return "[TxRxResult] Protocol does not support this function!"
         else:

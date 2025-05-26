@@ -9,8 +9,8 @@ import platform
 DEFAULT_BAUDRATE = 1000000
 # Assume 50Hz
 LATENCY_TIMER_US = 40      # 40 µs  → 0.04 ms
-MAX_BUSY_US      = 8_000   # 8 ms   hard cap
-MIN_TIMEOUT_US   = 1_000   # 1 ms   floor
+MAX_BUSY_US      = 8_000   # 8 us   hard cap
+MIN_TIMEOUT_US   = 1_000   # 1 us   floor
 
 class PortHandler(object):
     def __init__(self, port_name):

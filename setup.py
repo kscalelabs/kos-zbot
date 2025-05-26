@@ -27,7 +27,8 @@ setup(
         'click',
         'rich',
         'RPi.GPIO',
-        'kscale>=0.3.16'
+        'kscale>=0.3.16',
+        'kinfer'
     ],
     entry_points={
         'console_scripts': [

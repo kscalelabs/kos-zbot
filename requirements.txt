@@ -1,5 +1,0 @@
-# requirements.txt
-
-# gRPC bypass for actuators + imu
-kinfer
-

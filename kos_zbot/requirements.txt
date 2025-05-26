@@ -17,3 +17,4 @@ click
 rich
 RPi.GPIO 
 kscale>=0.3.16
+kinfer

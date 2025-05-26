@@ -502,6 +502,31 @@ def demo():
     show_default=True,
     help="KOS service IP address",
 )
+def salute(duration, amplitude, frequency, ip):
+    """Salute Demo Sequence"""
+    import asyncio
+    from kos_zbot.scripts.salute import salute
+
+    HAND_ACTUATOR_IDS = [21,22,23,24]
+
+    SALUTE_CONFIG = {
+        "kos_ip": ip,
+        "squeeze_duration": duration,
+        "squeeze_amplitude": amplitude,
+        "squeeze_freq": frequency,
+        "kp": 15.0,
+        "kd": 3.0,
+        "ki": 0.0,
+        "max_torque": 50.0,  # Lower torque for gentle hand waving
+        "acceleration": 500.0,
+        "torque_enabled": True,
+    }
+
+    click.echo(f"Starting hand wave demo for {duration} seconds...")
+    click.echo(f"Amplitude: {amplitude}°, Frequency: {frequency} Hz")
+    asyncio.run(salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+
+
 def hand_wave(duration, amplitude, frequency, ip):
     """Run a hand waving demonstration."""
     import asyncio

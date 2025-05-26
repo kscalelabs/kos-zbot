@@ -3,6 +3,7 @@ import numpy as np
 import time
 
 import signal
+import logging
 
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async

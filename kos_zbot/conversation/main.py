@@ -3,8 +3,8 @@ import logging
 import asyncio
 from typing import Optional
 import dotenv
-from voice.voice import Voice
-from config import get_available_speakers, get_available_microphones
+from .voice.voice import Voice
+from .voice.config import get_available_speakers, get_available_microphones
 
 # Configure minimal logging
 logging.basicConfig(

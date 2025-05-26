@@ -4,7 +4,7 @@ from .audio import AudioPlayer
 from .recorder import AudioRecorder
 from .processor import AudioProcessor
 from pyee.asyncio import AsyncIOEventEmitter
-from config import get_config, save_config
+from .config import get_config, save_config
 
 
 class Voice(AsyncIOEventEmitter):

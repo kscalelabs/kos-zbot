@@ -124,8 +124,11 @@ def create_config():
     microphones = get_available_microphones()
     speakers = get_available_speakers()
 
-    config["microphone_id"] = select_default_device(microphones, "microphone")
-    config["speaker_id"] = select_default_device(speakers, "speaker")
+    config["microphone_id"] = find_device_by_name(DEFAULT_CONFIG["microphone_name"], "microphone")
+    config["speaker_id"] = find_device_by_name(DEFAULT_CONFIG["speaker_name"], "speaker")
+    #config["microphone_id"] = select_default_device(microphones, "microphone")
+    #config["speaker_id"] = select_default_device(speakers, "speaker")
+
 
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)

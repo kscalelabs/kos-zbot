@@ -101,6 +101,13 @@ class ToolManager(AsyncIOEventEmitter):
                 "description": "Physically wave the robot's hand. Use this for greetings (hello, hi, hey, good morning, good afternoon, good evening) and departures (goodbye, bye, see you later).",
                 "parameters": {"type": "object", "properties": {}},
             },
+
+            {
+                "type": "function",
+                "name": "salute",
+                "description": "Physically salute the robot's hand. Use this for formal greetings and patriotic situations (at attention, salute, etc).",
+                "parameters": {"type": "object", "properties": {}},
+            }
         ]
 
     async def handle_tool_call(self, event):
@@ -121,6 +128,7 @@ class ToolManager(AsyncIOEventEmitter):
             "set_volume": self._handle_set_volume,
             "describe_surroundings": self._handle_describe_surroundings,
             "wave_hand": self._handle_wave_hand,
+            "salute": self._handle_salute,
         }
 
         handler = handlers.get(event.name)
@@ -250,9 +258,7 @@ class ToolManager(AsyncIOEventEmitter):
             # Import the hand wave function
             import sys
             import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-
-            
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))            
             # Hand actuator IDs (same as in CLI)
             HAND_ACTUATOR_IDS = [11, 12, 13]
             
@@ -309,4 +315,38 @@ class ToolManager(AsyncIOEventEmitter):
             
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
+
+    async def _handle_salute(self, event):
+        """Handle the salute tool call.
+
+        Args:
+            event: Tool call event
+        """
+        try:
+            # Import the salute function
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+            from kos_zbot.scripts.salute import salute as salute_func
+
+            # Hand actuator IDs (same as in CLI)
+            HAND_ACTUATOR_IDS = [21, 22, 23, 24]
+
+            SALUTE_CONFIG = {
+                "kos_ip": "127.0.0.1",
+                "squeeze_duration": 5.0,
+            }
+
+             # Send immediate response
+            await self._create_tool_response(event.call_id, "At attention!")
+            
+            # Execute the wave in the background
+            asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+            
+        except Exception as e:
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
+
+
+            
+         
 

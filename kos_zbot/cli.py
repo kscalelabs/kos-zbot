@@ -479,7 +479,7 @@ cli.add_command(demo)
 @click.option(
     "--duration",
     type=float,
-    default=8.0,
+    default=5.0,
     show_default=True,
     help="Duration of the salute in seconds",
 )
@@ -493,7 +493,7 @@ cli.add_command(demo)
 @click.option(
     "--frequency",
     type=float,
-    default=1.5,
+    default=.75,
     show_default=True,
     help="Salute frequency in Hz",
 )

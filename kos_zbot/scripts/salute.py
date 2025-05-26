@@ -81,7 +81,7 @@ async def salute(
     
     await kos.actuator.command_actuators([
         {"actuator_id": 21, "position": -150},
-        {"acutator_id": 22, "position": -20},
+        {"actuator_id": 22, "position": -20},
         {"actuator_id": 23, "position": -60}
     ])
 

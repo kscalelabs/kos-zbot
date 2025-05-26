@@ -59,7 +59,7 @@ async def salute(
         state_resp = await kos.actuator.get_actuators_state()
         available_ids = {s.actuator_id for s in state_resp.states}
     except Exception as e:
-        log.error{f"No actuators available: {e}"}
+        log.error(f"No actuators available: {e}")
 
     valid_actuator_ids = [aid for aid in actuator_ids if aid in available_ids]
     missing_actuators = [aid for aid in actuator_ids if aid not in available_ids]

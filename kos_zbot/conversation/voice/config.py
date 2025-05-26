@@ -69,7 +69,7 @@ def find_device_by_name(device_name, device_type="speaker"):
     """
     if device_type == "microphone":
         devices = get_available_microphones()
-    if device_type == "speaker":
+    elif device_type == "speaker":
         devices = get_available_speakers()
     else:
         raise ValueError("Invalid device type")

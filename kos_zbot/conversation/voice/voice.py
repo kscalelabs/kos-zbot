@@ -42,16 +42,16 @@ class Voice(AsyncIOEventEmitter):
         else:
             self.config = config
 
-        if self.config.get("microphone_id") is int:
+        if self.config.get("microphone_id").__class__ is int:
             microphone_id = self.config.get("microphone_id")
-        elif self.config.get("microphone_id") is str:
+        elif self.config.get("microphone_id").__class__ is str:
             microphone_id = find_device_by_name(self.config.get("microphone_id"), "microphone")
         else:
             raise ValueError("Invalid microphone ID")
 
-        if self.config.get("speaker_id") is int:
+        if self.config.get("speaker_id").__class__ is int:
             speaker_id = self.config.get("speakere_id")
-        elif self.config.get("speaker_id") is str:
+        elif self.config.get("speaker_id").__class__ is str:
             speaker_id = find_device_by_name(self.config.get("speaker_id"), "speaker")
         else:
             raise ValueError("Invalid speaker ID")

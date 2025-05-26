@@ -86,30 +86,40 @@ class AudioPlayer(AsyncIOEventEmitter):
 
     def _setup_audio_device(self):
         """Set up the audio output device."""
-        devices = sd.query_devices()
 
         try:
             if self.device_id is not None:
                 try:
+                    # Validate that the device exists and has output channels
                     device = sd.query_devices(self.device_id)
-                    device_id = self.device_id
-                    logger.info(f"Output: {device['name']}")
+                    if device["max_output_channels"] > 0:
+                        device_id = self.device_id
+                        logger.info(f"Using specified output device ID {device_id}: {device['name']}")
+                    else:
+                        logger.warning(f"Device ID {self.device_id} has no output channels")
+                        raise ValueError(f"Device {self.device_id} is not an output device")
                 except Exception as e:
                     logger.warning(f"Could not use specified device ID {self.device_id}: {e}")
-                    default_device = sd.query_devices(kind="output")
-                    device_id = default_device["index"]
-                    logger.info(f"Output: {default_device['name']}")
-            else:
+                    logger.info("Falling back to default output device")
+                    device_id = None
+            
+            if device_id is None:
+                # Use system default output device
                 default_device = sd.query_devices(kind="output")
-                device_id = default_device["index"]
-                logger.info(f"Output: {default_device['name']}")
+                device_id = default_device["index"] if "index" in default_device else None
+                logger.info(f"Using default output device: {default_device['name']}")
 
-            device = sd.query_devices(device_id)
-            supported_rates = device.get("default_samplerate")
-
-            self.input_rate = SAMPLE_RATE
-            self.output_rate = int(supported_rates) if supported_rates else SAMPLE_RATE
-            logger.info(f"Sample rate: {self.output_rate} Hz")
+            # Get device info for sample rate
+            if device_id is not None:
+                device = sd.query_devices(device_id)
+                supported_rates = device.get("default_samplerate")
+                self.input_rate = SAMPLE_RATE
+                self.output_rate = int(supported_rates) if supported_rates else SAMPLE_RATE
+                logger.info(f"Sample rate: {self.output_rate} Hz")
+            else:
+                logger.warning("No valid output device found, using default sample rate")
+                self.input_rate = SAMPLE_RATE
+                self.output_rate = SAMPLE_RATE
 
         except Exception as e:
             logger.error(f"Audio setup error: {e}")
@@ -128,8 +138,15 @@ class AudioPlayer(AsyncIOEventEmitter):
             )
             self.playing = False
             self._frame_count = 0
+            
+            if device_id is not None:
+                final_device = sd.query_devices(device_id)
+                logger.info(f"Successfully initialized audio output on: {final_device['name']}")
+            else:
+                logger.info("Successfully initialized audio output on system default device")
+                
         except Exception as e:
-            print(f"Warning: Could not initialize audio output: {e}")
+            logger.error(f"Warning: Could not initialize audio output: {e}")
             self.stream = None
             self.playing = False
             self._frame_count = 0

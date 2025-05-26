@@ -5,8 +5,8 @@ from pathlib import Path
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "microphone_id": 1,
-    "speaker_id": 2,
+    "microphone_name": "Device",
+    "speaker_name": "sndrpigooglevoi", 
     "volume": 0.35,
     "debug": False,
     "environment": "default",
@@ -141,7 +141,7 @@ def load_config():
     """Load configuration from file or create default if it doesn't exist.
 
     Returns:
-        dict: Configuration values
+        dict: Configuration values with device IDs resolved
     """
     config_path = Path(CONFIG_FILE)
 
@@ -153,11 +153,15 @@ def load_config():
         with open(config_path, "r") as f:
             config = json.load(f)
 
+        # Add any missing default values
         for key in DEFAULT_CONFIG:
             if key not in config:
                 config[key] = DEFAULT_CONFIG[key]
 
-        return config
+        # Resolve device names to IDs
+        resolved_config = resolve_device_config(config)
+        
+        return resolved_config
 
     except Exception as e:
         print(f"Error loading configuration: {e}")
@@ -181,7 +185,7 @@ def get_config():
     """Get the current configuration or create if needed.
 
     Returns:
-        dict: The current configuration
+        dict: The current configuration with device IDs resolved
     """
     return load_config()
 

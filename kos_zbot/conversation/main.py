@@ -38,9 +38,8 @@ def main() -> None:
         for device in get_available_speakers():
             logger.info(f"  ID: {device['id']}, Name: {device['name']}")
         
-        # Initialize voice system
+        # Initialize voice system (config will be loaded from config.json)
         logger.info("\nInitializing voice system...")
-
         voice = Voice(
             openai_api_key=openai_api_key,
             config=None,

@@ -1,61 +1,91 @@
 import os
-import logging
-import asyncio
-from typing import Optional
 import dotenv
-from .voice.voice import Voice
-from .voice.config import get_available_speakers, get_available_microphones
+import asyncio
+from config import load_config, get_microphone_id, get_speaker_id
+from voice.audio import AudioPlayer
+from voice.recorder import AudioRecorder
+from voice.processor import AudioProcessor
 
-# Configure minimal logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s'
-)
-logger = logging.getLogger(__name__)
 
-def get_required_env_var(name: str) -> str:
-    """Get a required environment variable or raise an error if not found."""
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f"Required environment variable {name} is not set")
-    return value
+class Voice:
 
-def main() -> None:
-    """Initialize and run the voice system."""
-    # Load environment variables
-    dotenv.load_dotenv()
-    
-    try:
-        # Get required configuration
-        openai_api_key = get_required_env_var("OPENAI_API_KEY")
-        
-        # Show available audio devices
-        logger.info("Available input devices:")
-        for device in get_available_microphones():
-            logger.info(f"  ID: {device['id']}, Name: {device['name']}")
-            
-        logger.info("\nAvailable output devices:")
-        for device in get_available_speakers():
-            logger.info(f"  ID: {device['id']}, Name: {device['name']}")
-        
-        # Initialize voice system (config will be loaded from config.json)
-        logger.info("\nInitializing voice system...")
-        voice = Voice(
+    def __init__(self, openai_api_key, config=None):
+        if config is None:
+            self.config = load_config()
+        else:
+            self.config = config
+
+        microphone_id = get_microphone_id(self.config)
+        speaker_id = get_speaker_id(self.config)
+        self.volume = self.config.get("volume", 0.35)
+
+        self.recorder = AudioRecorder(microphone_id=microphone_id)
+        self.processor = AudioProcessor(
             openai_api_key=openai_api_key,
-            config=None,
+            robot=self,
         )
-        
-        @voice.event("ready")
-        async def handle_ready() -> None:
-            """Handle the ready event when the voice system is initialized."""
-            logger.info("Voice system ready")
-        
-        # Run the voice system
-        asyncio.run(voice.run())
-        
-    except Exception as e:
-        logger.error(f"Error: {str(e)}")
-        raise
+        self.player = AudioPlayer(device_id=speaker_id, volume=self.volume)
+
+        self._setup_component_connections()
+
+    def _setup_component_connections(self):
+        # Recorder -> Processor
+        self.recorder.on("audio_captured", self._handle_audio_captured)
+
+        # Processor -> Player
+        self.processor.on("audio_to_play", self._handle_audio_to_play)
+        self.processor.on(
+            "processing_complete", self._handle_processing_complete
+        )
+        self.processor.on(
+            "session_ready", lambda: self.recorder.start_recording()
+        )
+
+        # Player -> Voice
+        self.player.on("queue_empty", self._handle_queue_empty)
+
+    async def _handle_audio_captured(self, data):
+        await self.processor.process_audio(data["audio_bytes"])
+
+    def _handle_audio_to_play(self, audio_bytes):
+        self.player.add_data(audio_bytes)
+        self.recorder.stop_recording()
+
+    def _handle_processing_complete(self):
+        asyncio.create_task(self._wait_for_audio_completion())
+
+    def _handle_queue_empty(self):
+        self.recorder.start_recording()
+
+    async def _wait_for_audio_completion(self):
+        await self.player.wait_for_queue_empty()
+        await asyncio.sleep(0.1)
+        self.recorder.start_recording()
+
+    async def run(self):
+        await self.recorder.start()
+        queue_monitor_task = asyncio.create_task(
+            self.player.start_queue_monitor()
+        )
+
+        await self.processor.connect()
+        queue_monitor_task.cancel()
+
+
+async def run_voice_system(openai_api_key=None, config=None):
+    if openai_api_key is None:
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            raise ValueError(
+                "OpenAI API key is required. Set OPENAI_API_KEY environment variable."
+            )
+
+    print("\nInitializing voice system...")
+    voice = Voice(openai_api_key=openai_api_key, config=config)
+
+    await voice.run()
+
 
 if __name__ == "__main__":
-    main()
+    dotenv.load_dotenv()
+    asyncio.run(run_voice_system())

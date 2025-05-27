@@ -15,27 +15,8 @@ dotenv.load_dotenv()
 
 
 class ToolManager(AsyncIOEventEmitter):
-    """Manages LLM tools for the voice system.
-
-    This class handles the definition, registration, and execution of LLM tools.
-    It manages the tool definitions and handles invoking the appropriate functions
-    when tools are called by the LLM.
-
-    Attributes:
-        robot: Reference to the main robot instance
-        connection: Active connection to OpenAI API
-
-    Events emitted:
-        - set_volume: When the volume tool is called
-    """
 
     def __init__(self, robot=None, api_key=None):
-        """Initialize the ToolManager.
-
-        Args:
-            robot: Reference to the main robot instance
-            api_key: OpenAI API key for vision functionality
-        """
         super().__init__()
         self.robot = robot
         self.connection = None
@@ -51,19 +32,9 @@ class ToolManager(AsyncIOEventEmitter):
         )
 
     def set_connection(self, connection):
-        """Set the OpenAI API connection.
-
-        Args:
-            connection: Active connection to OpenAI API
-        """
         self.connection = connection
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Get the tool definitions for the LLM.
-
-        Returns:
-            List of tool definitions in the format expected by OpenAI
-        """
         return [
             {
                 "type": "function",
@@ -111,14 +82,6 @@ class ToolManager(AsyncIOEventEmitter):
         ]
 
     async def handle_tool_call(self, event):
-        """Handle a tool call from the LLM.
-
-        Args:
-            event: Tool call event from OpenAI API
-
-        Returns:
-            bool: True if the tool call was handled, False otherwise
-        """
         if not self.connection:
             print("No connection available for tool call")
             return False
@@ -140,9 +103,6 @@ class ToolManager(AsyncIOEventEmitter):
             return False
 
     def capture_jpeg_cli(self, width: int = 640, height: int = 480, warmup_ms: int = 500) -> bytes:
-        """Capture a single JPEG image via libcamera-jpeg CLI in headless mode.
-        Returns the raw JPEG bytes.
-        """
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             cmd = [
                 "libcamera-jpeg",
@@ -165,11 +125,6 @@ class ToolManager(AsyncIOEventEmitter):
             return data
 
     async def _handle_describe_surroundings(self, event):
-        """Handle the describe_surroundings tool call.
-
-        Args:
-            event: Tool call event containing the request details
-        """
         try:
             # Send immediate acknowledgment
             await self._create_tool_response(event.call_id, "Let me look...")
@@ -206,21 +161,11 @@ class ToolManager(AsyncIOEventEmitter):
             await self._create_tool_response(event.call_id, f"Sorry, I had trouble processing the image: {str(e)}")
 
     async def _handle_get_current_time(self, event):
-        """Handle the get_current_time tool call.
-
-        Args:
-            event: Tool call event
-        """
         current_time = time.strftime("%I:%M %p")
         message = f"The current time is {current_time}."
         await self._create_tool_response(event.call_id, message)
 
     async def _handle_set_volume(self, event):
-        """Handle the set_volume tool call.
-
-        Args:
-            event: Tool call event
-        """
         args = json.loads(event.arguments)
         volume = float(args["volume"])
 
@@ -230,12 +175,6 @@ class ToolManager(AsyncIOEventEmitter):
         await self._create_tool_response(event.call_id, message)
 
     async def _create_tool_response(self, call_id, output):
-        """Create a response for a tool call.
-
-        Args:
-            call_id (str): ID of the tool call
-            output (str): Output of the tool call
-        """
         if not self.connection:
             print("No connection available for tool response")
             return
@@ -249,24 +188,17 @@ class ToolManager(AsyncIOEventEmitter):
         )
 
     async def _handle_wave_hand(self, event):
-        """Handle the wave_hand tool call.
-
-        Args:
-            event: Tool call event
-        """
         try:
-            # Import the hand wave function
             import sys
             import os
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))            
-            # Hand actuator IDs (same as in CLI)
             HAND_ACTUATOR_IDS = [11, 12, 13]
             
             HAND_WAVE_CONFIG = {
                 "kos_ip": "127.0.0.1",
                 "amplitude": 15.0,
                 "frequency": 1.5,
-                "duration": 3.0,  # Shorter duration for quick wave
+                "duration": 3.0,
                 "sample_rate": 50.0,
                 "start_pos": 0.0,
                 "sync_all": False,
@@ -307,29 +239,20 @@ class ToolManager(AsyncIOEventEmitter):
                 "torque_enabled": True,
             }
             
-            # Send immediate response
             await self._create_tool_response(event.call_id, "Waving hello!")
             
-            # Execute the wave in the background
             asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
             
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
 
     async def _handle_salute(self, event):
-        """Handle the salute tool call.
-
-        Args:
-            event: Tool call event
-        """
         try:
-            # Import the salute function
             import sys
             import os
             sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
             from kos_zbot.scripts.salute import salute as salute_func
 
-            # Hand actuator IDs (same as in CLI)
             HAND_ACTUATOR_IDS = [21, 22, 23, 24]
 
             SALUTE_CONFIG = {
@@ -337,10 +260,8 @@ class ToolManager(AsyncIOEventEmitter):
                 "squeeze_duration": 5.0,
             }
 
-             # Send immediate response
             await self._create_tool_response(event.call_id, "At attention!")
             
-            # Execute the wave in the background
             asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
             
         except Exception as e:

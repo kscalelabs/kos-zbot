@@ -5,8 +5,8 @@ from pathlib import Path
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "microphone_id": 1,
-    "speaker_id": 2,
+    "microphone_name": "USB PnP",
+    "speaker_name": "googlev", 
     "volume": 0.35,
     "debug": False,
     "environment": "default",
@@ -57,6 +57,36 @@ def get_available_speakers():
     return devices
 
 
+def find_device_by_name(device_name, device_type="speaker"):
+    """Find device ID by name (supports partial matching).
+
+    Args:
+        device_name (str): Name or partial name of the device to find
+        device_type (str): Type of device ('microphone' or 'speaker')
+
+    Returns:
+        int or None: Device ID if found, None otherwise
+    """
+    if device_type == "microphone":
+        devices = get_available_microphones()
+    elif device_type == "speaker":
+        devices = get_available_speakers()
+    else:
+        raise ValueError("Invalid device type")
+    
+    # First try exact match (case insensitive)
+    for device in devices:
+        if device["name"].lower() == device_name.lower():
+            return device["id"]
+    
+    # Then try partial match (case insensitive)
+    for device in devices:
+        if device_name.lower() in device["name"].lower():
+            return device["id"]
+    
+    return None
+
+
 def select_default_device(devices, device_type):
     """Select a default device based on available devices.
 
@@ -94,8 +124,11 @@ def create_config():
     microphones = get_available_microphones()
     speakers = get_available_speakers()
 
-    config["microphone_id"] = select_default_device(microphones, "microphone")
-    config["speaker_id"] = select_default_device(speakers, "speaker")
+    config["microphone_id"] = find_device_by_name(DEFAULT_CONFIG["microphone_name"], "microphone")
+    config["speaker_id"] = find_device_by_name(DEFAULT_CONFIG["speaker_name"], "speaker")
+    #config["microphone_id"] = select_default_device(microphones, "microphone")
+    #config["speaker_id"] = select_default_device(speakers, "speaker")
+
 
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
@@ -111,7 +144,7 @@ def load_config():
     """Load configuration from file or create default if it doesn't exist.
 
     Returns:
-        dict: Configuration values
+        dict: Configuration values with device IDs resolved
     """
     config_path = Path(CONFIG_FILE)
 
@@ -123,11 +156,15 @@ def load_config():
         with open(config_path, "r") as f:
             config = json.load(f)
 
+        # Add any missing default values
         for key in DEFAULT_CONFIG:
             if key not in config:
                 config[key] = DEFAULT_CONFIG[key]
 
-        return config
+        # Resolve device names to IDs
+        resolved_config = resolve_device_config(config)
+        
+        return resolved_config
 
     except Exception as e:
         print(f"Error loading configuration: {e}")
@@ -151,7 +188,7 @@ def get_config():
     """Get the current configuration or create if needed.
 
     Returns:
-        dict: The current configuration
+        dict: The current configuration with device IDs resolved
     """
     return load_config()
 

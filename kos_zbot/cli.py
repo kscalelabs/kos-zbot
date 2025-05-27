@@ -473,11 +473,66 @@ def demo():
     """Demo commands."""
     pass
 
+cli.add_command(demo)
+
 @demo.command()
 @click.option(
     "--duration",
     type=float,
-    default=10.0,
+    default=5.0,
+    show_default=True,
+    help="Duration of the salute in seconds",
+)
+@click.option(
+    "--amplitude",
+    type=float,
+    default=15.0,
+    show_default=True,
+    help="Salute amplitude in degrees",
+)
+@click.option(
+    "--frequency",
+    type=float,
+    default=.75,
+    show_default=True,
+    help="Salute frequency in Hz",
+)
+@click.option(
+    "--ip",
+    type=str,
+    default="127.0.0.1",
+    show_default=True,
+    help="KOS service IP address",
+)
+def salute(duration, amplitude, frequency, ip):
+    """Salute Demo Sequence"""
+    import asyncio
+    from kos_zbot.scripts.salute import salute as salute_func
+
+    HAND_ACTUATOR_IDS = [21,22,23,24]
+
+    SALUTE_CONFIG = {
+        "kos_ip": ip,
+        "squeeze_duration": duration,
+        "squeeze_amplitude": amplitude,
+        "squeeze_freq": frequency,
+        "kp": 15.0,
+        "kd": 3.0,
+        "ki": 0.0,
+        "max_torque": 50.0,  # Lower torque for gentle hand waving
+        "acceleration": 500.0,
+        "torque_enabled": True,
+    }
+
+    click.echo(f"Starting salute demo for {duration} seconds...")
+    click.echo(f"Amplitude: {amplitude}°, Frequency: {frequency} Hz")
+    asyncio.run(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+
+@demo.command()
+@click.option(
+    "--duration",
+    type=float,
+    default=5.0,
     show_default=True,
     help="Duration of the hand wave in seconds",
 )
@@ -514,7 +569,7 @@ def hand_wave(duration, amplitude, frequency, ip):
         "kos_ip": ip,
         "amplitude": amplitude,
         "frequency": frequency,
-        "duration": 5,
+        "duration": duration,  # Use the CLI parameter instead of hardcoded value
         "sample_rate": 50.0,
         "start_pos": 0.0,
         "sync_all": False,

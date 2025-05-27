@@ -9,6 +9,7 @@ from pyee.asyncio import AsyncIOEventEmitter
 from openai import OpenAI
 import dotenv
 import asyncio
+from kos_zbot.tests.hello_wave import run_sine_test
 
 dotenv.load_dotenv()
 
@@ -93,6 +94,20 @@ class ToolManager(AsyncIOEventEmitter):
                 "description": "Take a photo with the camera and describe what is visible in the surroundings",
                 "parameters": {"type": "object", "properties": {}},
             },
+           
+            {
+                "type": "function",
+                "name": "wave_hand",
+                "description": "Physically wave the robot's hand. Use this for greetings (hello, hi, hey, good morning, good afternoon, good evening) and departures (goodbye, bye, see you later).",
+                "parameters": {"type": "object", "properties": {}},
+            },
+
+            {
+                "type": "function",
+                "name": "salute",
+                "description": "Physically salute the robot's hand. Use this for formal greetings and patriotic situations (at attention, salute, etc).",
+                "parameters": {"type": "object", "properties": {}},
+            }
         ]
 
     async def handle_tool_call(self, event):
@@ -112,6 +127,8 @@ class ToolManager(AsyncIOEventEmitter):
             "get_current_time": self._handle_get_current_time,
             "set_volume": self._handle_set_volume,
             "describe_surroundings": self._handle_describe_surroundings,
+            "wave_hand": self._handle_wave_hand,
+            "salute": self._handle_salute,
         }
 
         handler = handlers.get(event.name)
@@ -230,3 +247,106 @@ class ToolManager(AsyncIOEventEmitter):
                 "output": output,
             }
         )
+
+    async def _handle_wave_hand(self, event):
+        """Handle the wave_hand tool call.
+
+        Args:
+            event: Tool call event
+        """
+        try:
+            # Import the hand wave function
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))            
+            # Hand actuator IDs (same as in CLI)
+            HAND_ACTUATOR_IDS = [11, 12, 13]
+            
+            HAND_WAVE_CONFIG = {
+                "kos_ip": "127.0.0.1",
+                "amplitude": 15.0,
+                "frequency": 1.5,
+                "duration": 3.0,  # Shorter duration for quick wave
+                "sample_rate": 50.0,
+                "start_pos": 0.0,
+                "sync_all": False,
+                "wave_patterns": {
+                    "shoulder_pitch": {
+                        "actuators": [11],
+                        "amplitude": 5.0,
+                        "frequency": 0.25,
+                        "phase_offset": 0.0,
+                        "freq_multiplier": 1.0,
+                        "start_pos": 120.0,
+                        "position_offset": 0.0,
+                    },
+                    "shoulder_roll": {
+                        "actuators": [12],
+                        "amplitude": 10.0,
+                        "frequency": 0.75,
+                        "phase_offset": 0.0,
+                        "freq_multiplier": 1.0,
+                        "start_pos": 0.0,
+                        "position_offset": 0.0,
+                    },
+                    "elbow_roll": {
+                        "actuators": [13],
+                        "amplitude": 10.0,
+                        "frequency": 1,
+                        "phase_offset": 90.0,
+                        "freq_multiplier": 1.0,
+                        "start_pos": 0.0,
+                        "position_offset": 0.0,
+                    },
+                },
+                "kp": 15.0,
+                "kd": 3.0,
+                "ki": 0.0,
+                "max_torque": 50.0,
+                "acceleration": 500.0,
+                "torque_enabled": True,
+            }
+            
+            # Send immediate response
+            await self._create_tool_response(event.call_id, "Waving hello!")
+            
+            # Execute the wave in the background
+            asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
+            
+        except Exception as e:
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
+
+    async def _handle_salute(self, event):
+        """Handle the salute tool call.
+
+        Args:
+            event: Tool call event
+        """
+        try:
+            # Import the salute function
+            import sys
+            import os
+            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+            from kos_zbot.scripts.salute import salute as salute_func
+
+            # Hand actuator IDs (same as in CLI)
+            HAND_ACTUATOR_IDS = [21, 22, 23, 24]
+
+            SALUTE_CONFIG = {
+                "kos_ip": "127.0.0.1",
+                "squeeze_duration": 5.0,
+            }
+
+             # Send immediate response
+            await self._create_tool_response(event.call_id, "At attention!")
+            
+            # Execute the wave in the background
+            asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+            
+        except Exception as e:
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
+
+
+            
+         
+

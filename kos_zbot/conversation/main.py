@@ -3,8 +3,8 @@ import logging
 import asyncio
 from typing import Optional
 import dotenv
-from voice.voice import Voice
-from config import get_available_speakers, get_available_microphones
+from .voice.voice import Voice
+from .voice.config import get_available_speakers, get_available_microphones
 
 # Configure minimal logging
 logging.basicConfig(
@@ -38,7 +38,7 @@ def main() -> None:
         for device in get_available_speakers():
             logger.info(f"  ID: {device['id']}, Name: {device['name']}")
         
-        # Initialize voice system
+        # Initialize voice system (config will be loaded from config.json)
         logger.info("\nInitializing voice system...")
         voice = Voice(
             openai_api_key=openai_api_key,

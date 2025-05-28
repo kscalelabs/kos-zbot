@@ -7,7 +7,6 @@ K-OS Operating System
 ## Installation
 
 Install in editable/development mode:
-
 ```bash
 pip install -e .
 ```
@@ -194,7 +193,7 @@ kos actuator torque ACTION IDS
 ```
 - **Arguments:**
   - `ACTION`: `enable` or `disable`
-  - `IDS`: Comma-separated actuator IDs (e.g., `11,12,13`)
+  - `IDS`: Comma-separated actuator IDs (e.g., `11,12,13`) or `all`
 - **Examples:**
   ```bash
   kos actuator torque enable 11,12,13
@@ -220,7 +219,7 @@ kos actuator zero IDS
 kos actuator dump IDS [--diff]
 ```
 - **Arguments:**
-  - `IDS`: Comma-separated actuator IDs (e.g., `11,12,13`)
+  - `IDS`: Comma-separated actuator IDs (e.g., `11,12,13`) or `all`
 - **Options:**
   - `--diff`: Only show parameters that differ
 - **Examples:**

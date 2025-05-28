@@ -32,11 +32,7 @@ class AudioProcessor(AsyncIOEventEmitter):
         self.debug_audio_dir = "debug_audio"
         os.makedirs(self.debug_audio_dir, exist_ok=True)
 
-        self.tool_manager = ToolManager(robot=robot, api_key=openai_api_key)
-
-        self.tool_manager.on(
-            "set_volume", lambda volume: self.emit("set_volume", volume)
-        )
+        self.tool_manager = ToolManager(robot=robot, openai_api_key=openai_api_key)
 
     async def connect(self):
         async with self.client.beta.realtime.connect(
@@ -44,7 +40,6 @@ class AudioProcessor(AsyncIOEventEmitter):
         ) as conn:
             self.connection = conn
             self.connected.set()
-
             self.tool_manager.set_connection(conn)
 
             print("Connected to OpenAI")
@@ -73,7 +68,7 @@ class AudioProcessor(AsyncIOEventEmitter):
 
         await conn.session.update(
             session={
-                "voice": "alloy",
+                "voice": "verse",
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.7,

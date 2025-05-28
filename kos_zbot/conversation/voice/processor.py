@@ -3,6 +3,7 @@ import os
 import time
 import base64
 import asyncio
+import datetime
 from pydub import AudioSegment
 from openai import AsyncOpenAI
 from .tools import ToolManager
@@ -16,27 +17,26 @@ class AudioProcessor(AsyncIOEventEmitter):
         self,
         openai_api_key,
         robot=None,
-        debug=False,
     ):
 
         super().__init__()
         self.robot = robot
-        self.debug = debug
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.connection = None
         self.session = None
         self.connected = asyncio.Event()
+
+        self.combined_audio_buffer = []
+        self.conversation_start_time = None
+
+        self.debug_audio_dir = "debug_audio"
+        os.makedirs(self.debug_audio_dir, exist_ok=True)
 
         self.tool_manager = ToolManager(robot=robot, api_key=openai_api_key)
 
         self.tool_manager.on(
             "set_volume", lambda volume: self.emit("set_volume", volume)
         )
-
-        if debug:
-            os.makedirs("debug_audio", exist_ok=True)
-            os.makedirs("debug_audio/input", exist_ok=True)
-            os.makedirs("debug_audio/output", exist_ok=True)
 
     async def connect(self):
         async with self.client.beta.realtime.connect(
@@ -59,6 +59,7 @@ class AudioProcessor(AsyncIOEventEmitter):
                     await self._handle_audio_delta(event)
                 elif event.type == "response.done":
                     self.emit("processing_complete")
+                    self.save_combined_audio()
                 elif event.type == "response.function_call_arguments.done":
                     await self._handle_tool_call(conn, event)
                     await conn.response.create()
@@ -90,12 +91,62 @@ class AudioProcessor(AsyncIOEventEmitter):
             return
 
         connection = self.connection
+
+        if self.conversation_start_time is None:
+            self.conversation_start_time = datetime.datetime.now()
+        
+        current_time = datetime.datetime.now()
+        self.combined_audio_buffer.append((current_time, "input", audio_bytes))
+            
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         await connection.input_audio_buffer.append(audio=audio_b64)
 
     async def _handle_audio_delta(self, event):
         audio_bytes = base64.b64decode(event.delta)
+        
+        if self.conversation_start_time is None:
+            self.conversation_start_time = datetime.datetime.now()
+        
+        current_time = datetime.datetime.now()
+        self.combined_audio_buffer.append((current_time, "output", audio_bytes))
+        
         self.emit("audio_to_play", audio_bytes)
+
+    def save_combined_audio(self):
+        if self.conversation_start_time is None or not self.combined_audio_buffer:
+            return
+            
+        timestamp = self.conversation_start_time.strftime("%Y%m%d_%H%M%S")
+        sorted_audio = sorted(self.combined_audio_buffer, key=lambda x: x[0])
+        combined_audio = AudioSegment.empty()
+        
+        for _, audio_type, audio_bytes in sorted_audio:
+            
+            try:
+                audio_segment = AudioSegment(
+                    data=audio_bytes,
+                    sample_width=2,  # 16-bit = 2 bytes
+                    frame_rate=24000,  # 24kHz sample rate
+                    channels=1  # mono
+                )
+                
+                combined_audio += audio_segment
+                    
+            except Exception as e:
+                print(f"Error processing {audio_type} audio chunk: {e}")
+                continue
+        
+        if len(combined_audio) > 0:
+            combined_filename = os.path.join(self.debug_audio_dir, f"conversation_{timestamp}.wav")
+            combined_audio.export(combined_filename, format="wav")
+    
+    def reset_audio_buffers(self):
+        self.combined_audio_buffer = []
+        self.conversation_start_time = None
+    
+    def save_and_reset_audio(self):
+        self.save_combined_audio()
+        self.reset_audio_buffers()
 
     async def _handle_tool_call(self, conn, event):
         await self.tool_manager.handle_tool_call(event)

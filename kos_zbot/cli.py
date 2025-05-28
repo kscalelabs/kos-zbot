@@ -289,17 +289,29 @@ def status(scale, ip):
 def actuator():
     """Commands for querying and configuring actuators."""
     pass
-
-
 cli.add_command(actuator)
 
 
 @actuator.command()
-@click.argument("ids", required=True)
-@click.argument("target", required=True)
 @click.option(
+    "--id",
+    "--ids",
+    "ids",
+    required=True,
+    help="Actuator IDs (comma-separated or 'all')",
+)
+@click.option(
+    "--pos",
+    "--position",
+    "target",
+    type=float,
+    required=True,
+    help="Target position in degrees",
+)
+@click.option(
+    "--vel",
     "--velocity",
-    "-v",
+    "velocity",
     type=float,
     default=None,
     help="Target velocity in degrees/second",
@@ -321,13 +333,16 @@ def move(ids, target, velocity, kp, kd, acceleration, wait):
 
     Examples:
         # Move all actuators to 0 degrees
-        kos actuator move all 0
+        kos actuator move --id all --pos 0
 
         # Move actuators 11,12 to 90 degrees at 45 deg/s
-        kos actuator move 11,12 90 -v 45
+        kos actuator move --id 11,12 --pos 90 --vel 45
 
         # Move actuator 11 to -45 degrees with custom gains
-        kos actuator move 11 -45 --kp 100 --kd 4
+        kos actuator move --id 11 --pos -45 --kp 100 --kd 4
+        
+        # Your example: move actuators 11,12 to -10 degrees at 2 deg/s
+        kos actuator move --pos -10 --vel 2 --id 11,12
     """
     from kos_zbot.tools.actuator_move import actuator_move
 

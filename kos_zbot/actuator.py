@@ -144,7 +144,7 @@ servoRegs = [
 
 class SCSMotorController:
     def __init__(
-        self, device="/dev/ttyAMA5", baudrate=500000, rate=50, actuator_ids=None
+        self, device="/dev/ttyAMA5", baudrate=500000, rate=50, actuator_ids=None, robot_metadata=None
     ):
         """Initialize the motor controller with minimal setup"""
 
@@ -219,18 +219,20 @@ class SCSMotorController:
             self.log.error("no actuators found")
             raise NoActuatorsFoundError("no actuators found")
 
-        self.metadata = RobotMetadata.get_instance().get_metadata()
+        self.metadata = robot_metadata
         self.actuator_limits = {}
-        for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
-            actuator_id = joint_metadata.id
-            if actuator_id is not None:
-                self.actuator_limits[actuator_id] = {
-                    'min_angle_deg': float(joint_metadata.min_angle_deg) if joint_metadata.min_angle_deg is not None else None,
-                    'max_angle_deg': float(joint_metadata.max_angle_deg) if joint_metadata.max_angle_deg is not None else None,
-                    'joint_name': joint_name
-                }
-        
-        self.log.info(f"Loaded angle limits for {len(self.actuator_limits)} actuators")
+        if self.metadata is not None:
+            for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
+                actuator_id = joint_metadata.id
+                if actuator_id is not None:
+                    self.actuator_limits[actuator_id] = {
+                        'min_angle_deg': float(joint_metadata.min_angle_deg) if joint_metadata.min_angle_deg is not None else None,
+                        'max_angle_deg': float(joint_metadata.max_angle_deg) if joint_metadata.max_angle_deg is not None else None,
+                        'joint_name': joint_name
+                    }
+            self.log.info(f"Loaded angle limits for {len(self.actuator_limits)} actuators")
+        else:
+            self.log.warning("No robot metadata available. Running without limiit enforcement.")
 
         with self._control_lock:
             for actuator in available_actuators:

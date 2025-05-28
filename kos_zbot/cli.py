@@ -27,13 +27,15 @@ class MainGroup(click.Group):
         # Customize the help output
         formatter.write("KOS Command Line Interface\n\n")
         formatter.write("Usage:\n")
-        formatter.write("  kos <robot_name> service    Start service for a robot\n")
-        formatter.write("  kos <robot_name> inference  Run inference for a robot\n\n")
+        formatter.write("  kos service                 Start KOS service without robot metadata\n")
+        formatter.write("  kos <robot_name>            Start service for a robot\n")
+        formatter.write("  kos <robot_name> infer      Run inference for a robot\n\n")
         formatter.write("Built-in commands:\n")
         formatter.write("  kos policy                  Policy operations\n")
         formatter.write("  kos status                  Show system status\n")
         formatter.write("  kos actuator                Actuator operations\n")
         formatter.write("  kos test                    Run tests\n")
+        formatter.write("  kos demo                    Run demonstration sequences\n")
         
         # Add options section
         formatter.write("\nOptions:\n")
@@ -71,20 +73,31 @@ class MainGroup(click.Group):
         
         # If not a built-in command, assume it's a robot name
         # Create a new command group for this robot
-        @click.group(cmd_name, help=f"Commands for robot name: '{cmd_name}'")
-        def robot_group():
+        @click.group(cmd_name, help=f"Commands for robot name: '{cmd_name}'", invoke_without_command=True)
+        @click.pass_context
+        def robot_group(ctx):
             """Robot-specific commands."""
-            # Load robot metadata
-            metadata_manager = RobotMetadata.get_instance()
-            metadata_manager.load_model_metadata(cmd_name)
-        
-        @robot_group.command("service")
-        def robot_service():
-            """Start the KOS service for this robot."""
-            from kos_zbot.kos import main as service_main
-            service_main()
+            # If no subcommand is provided, run the service
+            if ctx.invoked_subcommand is None:
+                try:
+                    # Load robot metadata
+                    metadata_manager = RobotMetadata.get_instance()
+                    metadata_manager.load_model_metadata(cmd_name)
+                    
+                    # Start the service
+                    from kos_zbot.kos import main as service_main
+                    service_main()
+                except Exception as e:
+                    # Check if it's a robot not found error
+                    if "No metadata found for model" in str(e) or "404" in str(e):
+                        click.echo(f"Error: Robot '{cmd_name}' not found.", err=True)
+                        click.echo("Use 'kscale robot list' to view available robots.", err=True)
+                        ctx.exit(1)
+                    else:
+                        # Re-raise other exceptions
+                        raise
 
-        @robot_group.command("inference")
+        @robot_group.command("infer")
         @click.option(
             "--model", type=click.Path(exists=True), help="Path to the policy model file"
         )
@@ -121,17 +134,31 @@ class MainGroup(click.Group):
         )
         def robot_inference(model, action_scale, episode_length, device, baudrate, rate):
             """Run a dedicated inference loop for this robot."""
-            from kos_zbot.inference import run_policy_loop
-            asyncio.run(
-                run_policy_loop(
-                    model_file=model,
-                    action_scale=action_scale,
-                    episode_length=episode_length,
-                    device=device,
-                    baudrate=baudrate,
-                    rate=rate,
+            try:
+                # Load robot metadata
+                metadata_manager = RobotMetadata.get_instance()
+                metadata_manager.load_model_metadata(cmd_name)
+                
+                from kos_zbot.inference import run_policy_loop
+                asyncio.run(
+                    run_policy_loop(
+                        model_file=model,
+                        action_scale=action_scale,
+                        episode_length=episode_length,
+                        device=device,
+                        baudrate=baudrate,
+                        rate=rate,
+                    )
                 )
-            )
+            except Exception as e:
+                # Check if it's a robot not found error
+                if "No metadata found for model" in str(e) or "404" in str(e):
+                    click.echo(f"Error: Robot '{cmd_name}' not found.", err=True)
+                    click.echo("Use 'kscale robot list' to view available robots.", err=True)
+                    ctx.exit(1)
+                else:
+                    # Re-raise other exceptions
+                    raise
         
         # Use the same custom help approach for robot group
         def show_robot_help(ctx, param, value):
@@ -139,11 +166,11 @@ class MainGroup(click.Group):
                 formatter = ctx.make_formatter()
                 formatter.write(f"Robot: {cmd_name}\n\n")
                 formatter.write("Commands:\n")
-                formatter.write("  service     Start the KOS service for this robot\n")
-                formatter.write("  inference   Run a dedicated inference loop for this robot\n\n")
+                formatter.write("  (no command)    Start the KOS service for this robot\n")
+                formatter.write("  infer           Run a dedicated inference loop for this robot\n\n")
                 formatter.write("Examples:\n")
-                formatter.write(f"  kos {cmd_name} service\n")
-                formatter.write(f"  kos {cmd_name} inference --model=path/to/model --action-scale=0.1\n")
+                formatter.write(f"  kos {cmd_name}\n")
+                formatter.write(f"  kos {cmd_name} infer --model=path/to/model --action-scale=0.1\n")
                 
                 formatter.write("\nOptions:\n")
                 formatter.write("  -h, --help  Show this message and exit.\n")
@@ -173,6 +200,12 @@ def cli():
     """KOS Command Line Interface."""
     pass
 
+
+@cli.command()
+def service():
+    """Start the KOS service without robot metadata."""
+    from kos_zbot.kos import main as service_main
+    service_main()
 
 
 @cli.group("policy", cls=PolicyGroup, help="Policy deployment operations.")
@@ -256,17 +289,29 @@ def status(scale, ip):
 def actuator():
     """Commands for querying and configuring actuators."""
     pass
-
-
 cli.add_command(actuator)
 
 
 @actuator.command()
-@click.argument("ids", required=True)
-@click.argument("target", required=True)
 @click.option(
+    "--id",
+    "--ids",
+    "ids",
+    required=True,
+    help="Actuator IDs (comma-separated or 'all')",
+)
+@click.option(
+    "--pos",
+    "--position",
+    "target",
+    type=float,
+    required=True,
+    help="Target position in degrees",
+)
+@click.option(
+    "--vel",
     "--velocity",
-    "-v",
+    "velocity",
     type=float,
     default=None,
     help="Target velocity in degrees/second",
@@ -288,13 +333,16 @@ def move(ids, target, velocity, kp, kd, acceleration, wait):
 
     Examples:
         # Move all actuators to 0 degrees
-        kos actuator move all 0
+        kos actuator move --id all --pos 0
 
         # Move actuators 11,12 to 90 degrees at 45 deg/s
-        kos actuator move 11,12 90 -v 45
+        kos actuator move --id 11,12 --pos 90 --vel 45
 
         # Move actuator 11 to -45 degrees with custom gains
-        kos actuator move 11 -45 --kp 100 --kd 4
+        kos actuator move --id 11 --pos -45 --kp 100 --kd 4
+        
+        # Your example: move actuators 11,12 to -10 degrees at 2 deg/s
+        kos actuator move --pos -10 --vel 2 --id 11,12
     """
     from kos_zbot.tools.actuator_move import actuator_move
 

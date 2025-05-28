@@ -27,7 +27,6 @@ import fcntl
 import termios
 import time
 
-
 class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
     def __init__(self, actuator_controller):
         super().__init__()
@@ -61,9 +60,11 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                     request.actuator_id, config
                 )
                 if not success:
-                    self.log.error(
-                        f"failed to configure actuator {request.actuator_id}"
-                    )
+                    error_msg = f"failed to configure actuator {request.actuator_id}"
+                    self.log.error(error_msg)
+                    context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
+                    context.set_details(error_msg)
+                    return common_pb2.ActionResponse(success=False)
 
                 return common_pb2.ActionResponse(success=success)
 
@@ -404,20 +405,32 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     log = get_logger(__name__)
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
 
-    # Check if we have robot metadata available
+    metadata = None
     try:
         metadata_manager = RobotMetadata.get_instance()
-        metadata = await metadata_manager.get_metadata_async()
         
         if metadata_manager.robot_name:
-            log.info(f"Using metadata for robot: {metadata_manager.robot_name}")
+            try:
+                # Try to load robot metadata from the API
+                metadata = await metadata_manager.get_metadata_async()
+                log.info(f"Successfully loaded metadata for robot: {metadata_manager.robot_name}")
+            except KScaleClientError as e:
+                if "404" in str(e) or "not found" in str(e).lower():
+                    log.error(f"Robot '{metadata_manager.robot_name}' not found. Please check the robot name or create the robot in the KScale platform.")
+                    sys.exit(1)
+                else:
+                    log.warning(f"Failed to load robot metadata: {e}. Running without robot-specific configuration.")
+            except Exception as e:
+                log.warning(f"Failed to load robot metadata: {e}. Running without robot-specific configuration.")
+        else:
+            log.info("No robot name specified. Running KOS service without robot-specific configuration.")
     except ImportError:
-        log.warning("robot metadata module not available")
+        log.info("Robot metadata module not available. Running KOS service without robot-specific configuration.")
 
     # Initialize hardware
     try:
         actuator_controller = SCSMotorController(
-            device="/dev/ttyAMA5", baudrate=1000000, rate=50
+            device="/dev/ttyAMA5", baudrate=1000000, rate=50,robot_metadata=metadata
         )
         actuator_controller.start()
     except NoActuatorsFoundError as e:

@@ -1,0 +1,54 @@
+Feetech Protocol
+
+Update Loop All Positions
+
+Send Target Positions
+----------------------
+Header: [0xFF, 0xFF]                    # 2 bytes
+Broadcast ID: [0xFE]                    # 1 byte
+Length: [N]                             # 1 byte (N = 3 bytes per actuator + 4)
+Instruction: [0x83]                     # 1 byte (sync write instruction)
+Parameter1: [start_address]             # 1 byte (position L register)
+Parameter2: [data_length]               # 1 byte (2 bytes for position)
+Data: [ID1, pos_L1, pos_H1, 
+       ID2, pos_L2, pos_H2, ...]       # 60 bytes (3 bytes × 20 actuators)
+Checksum: [sum]                         # 1 byte
+
+Total Send = 68 bytes
+-----------------------
+
+
+Read all Positions
+------------------------
+### SEND ###
+Group Sync Read
+Header: [0xFF, 0xFF]                    # 2 bytes
+Broadcast ID: [0xFE]                    # 1 byte
+Length: [N]                             # 1 byte (N = number of parameters + 4)
+Instruction: [0x82]                     # 1 byte (sync read instruction)
+Parameter1: [start_address]             # 1 byte (position L register)
+Parameter2: [data_length]               # 1 byte (2 bytes for position)
+ID List: [ID1, ID2, ..., ID20]         # 20 bytes (one per actuator)
+Checksum: [sum]                         # 1 byte
+
+Total Send = 28 bytes
+
+### RECV ###
+Header: [0xFF, 0xFF]                    # 2 bytes
+ID: [actuator_id]                       # 1 byte
+Length: [0x04]                          # 1 byte (data_length + 2)
+Error: [error]                          # 1 byte
+Data: [position_L, position_H]          # 2 bytes
+Checksum: [sum]                         # 1 byte
+
+Per Actuator = 8 bytes
+Total Receive = 8 bytes × 20 actuators = 160 bytes
+---------------------------
+
+Total Bytes exchanged during an update step:
+--------------
+Read:  188 bytes (28 send + 160 receive)
+Write: 68 bytes  (68 send + 0 receive)
+Total: 256 bytes per complete cycle
+---------------
+

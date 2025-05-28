@@ -61,9 +61,11 @@ class ActuatorService(actuator_pb2_grpc.ActuatorServiceServicer):
                     request.actuator_id, config
                 )
                 if not success:
-                    self.log.error(
-                        f"failed to configure actuator {request.actuator_id}"
-                    )
+                    error_msg = f"failed to configure actuator {request.actuator_id}"
+                    self.log.error(error_msg)
+                    context.set_code(grpc.StatusCode.FAILED_PRECONDITION)
+                    context.set_details(error_msg)
+                    return common_pb2.ActionResponse(success=False)
 
                 return common_pb2.ActionResponse(success=success)
 

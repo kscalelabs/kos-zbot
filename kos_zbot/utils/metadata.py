@@ -40,8 +40,30 @@ class RobotMetadata:
             raise ValueError("Robot name not set. Call load_model_metadata first.")
             
         if self.metadata is None:
-            # Use asyncio.run to run the async method in a synchronous context
-            self.metadata = asyncio.run(self.get_metadata_async())
+            # Check if we're already in an event loop
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an event loop, so we need to create a task
+                # This is a bit tricky - we'll need to use a different approach
+                import concurrent.futures
+                import threading
+                
+                # Create a new event loop in a separate thread
+                def run_in_new_loop():
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    try:
+                        return new_loop.run_until_complete(self.get_metadata_async())
+                    finally:
+                        new_loop.close()
+                
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_in_new_loop)
+                    self.metadata = future.result()
+                    
+            except RuntimeError:
+                # No event loop running, safe to use asyncio.run
+                self.metadata = asyncio.run(self.get_metadata_async())
                 
         return self.metadata
     

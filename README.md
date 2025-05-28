@@ -78,7 +78,7 @@ kos <robot_name>
   - **Hardware Settings:** Configures communication parameters
 - **Example:**
   ```bash
-  kos stompy
+  kos zbot
   ```
 
 #### Robot Inference Mode
@@ -96,7 +96,7 @@ kos <robot_name> infer [OPTIONS]
   - `--rate INT`: Control loop rate in Hz (default: 50)
 - **Example:**
   ```bash
-  kos stompy infer --model ./policy.onnx --action-scale 0.2 --episode-length 60
+  kos zbot infer --model ./policy.onnx --action-scale 0.2 --episode-length 60
   ```
 
 ---
@@ -346,7 +346,7 @@ When you start the service with a robot name (`kos <robot_name>`), the system au
 
 1. **Start service for a specific robot (with automatic configuration):**
    ```bash
-   kos stompy
+   kos zbot
    ```
    *This automatically sets gains and enforces limits*
 
@@ -357,7 +357,7 @@ When you start the service with a robot name (`kos <robot_name>`), the system au
 
 3. **Run inference with a trained policy:**
    ```bash
-   kos stompy infer --model ./trained_policy.onnx --action-scale 0.2
+   kos zbot infer --model ./trained_policy.onnx --action-scale 0.2
    ```
 
 ### Policy Deployment Workflow
@@ -392,8 +392,8 @@ For more details on any command or subcommand, use the `--help` flag:
 kos --help
 kos actuator move --help
 kos policy --help
-kos stompy --help
-kos stompy infer --help
+kos zbot --help
+kos zbot infer --help
 ```
 
 ---

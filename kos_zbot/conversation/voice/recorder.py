@@ -81,10 +81,6 @@ class AudioRecorder(AsyncIOEventEmitter):
 
         try:
             while True:
-                if not self.should_record.is_set():
-                    time.sleep(0.1)
-                    continue
-
                 try:
                     data, _ = stream.read(read_size)
                 except sd.PortAudioError as e:
@@ -92,9 +88,12 @@ class AudioRecorder(AsyncIOEventEmitter):
                     time.sleep(0.1)
                     continue
 
-                asyncio.run_coroutine_threadsafe(
-                    self._process_captured_audio(data), self._main_loop
-                )
+                if self.should_record.is_set():
+                    asyncio.run_coroutine_threadsafe(
+                        self._process_captured_audio(data), self._main_loop
+                    )
+                else:
+                    time.sleep(0.01)
         finally:
             stream.stop()
             stream.close()

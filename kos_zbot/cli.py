@@ -541,7 +541,7 @@ cli.add_command(demo)
 def conversation(ip, configure):
     """Run the conversation demo."""
     import asyncio
-    import kos_zbot.conversation.main as conversation_func
+    from kos_zbot.conversation.main import main as conversation_func
 
     if configure:
         async def configure_actuators():
@@ -554,7 +554,6 @@ def conversation(ip, configure):
                 return
             
             DEFAULT_CONFIG = {
-                "kos_ip": ip,
                 "kp": 15.0,
                 "kd": 3.0,
                 "ki": 0.0,
@@ -570,7 +569,8 @@ def conversation(ip, configure):
                 await kos.actuator.configure_actuator(actuator_id=aid, **DEFAULT_CONFIG)
         
         asyncio.run(configure_actuators())
-
+    
+    click.echo("Starting conversation demo...")
     asyncio.run(conversation_func())
 
 @demo.command()

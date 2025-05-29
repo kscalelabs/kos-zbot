@@ -140,6 +140,7 @@ gpio=16=op,dl
 # Camera
 camera_auto_detect=1
 display_auto_detect=1
+dtoverlay=imx219
 
 # Microphone, Pin 18 for Mic pull up, Right Channel, Pin 16 for Mic Vin. Requires Y Split for BCLK + LRCLK to follow same I2S as Audio Amp
 dtoverlay=googlevoicehat-soundcard

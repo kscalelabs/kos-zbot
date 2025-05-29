@@ -10,8 +10,7 @@ from kos_zbot.tools.actuator_torque import actuator_torque
 from kos_zbot.tools.actuator_zero import actuator_zero
 from kos_zbot.tools.policy_run import policy_start, policy_stop, get_policy_state
 from google.protobuf.json_format import MessageToDict
-
-
+from kos_zbot.tests.kos_connection import kos_ready
 
 class PolicyGroup(click.Group):
     def list_commands(self, ctx):
@@ -541,37 +540,16 @@ cli.add_command(demo)
 def conversation(ip, configure):
     """Run the conversation demo."""
     import asyncio
-    from kos_zbot.conversation.main import main as conversation_func
-
-    if configure:
-        async def configure_actuators():
-            from pykos import KOS
-            from kos_zbot.tests.kos_connection import kos_ready_async
-            if await kos_ready_async(ip):
-                kos = KOS(ip)
-            else:
-                print(f"KOS service not available at {ip}:50051")
-                return
-            
-            DEFAULT_CONFIG = {
-                "kp": 15.0,
-                "kd": 3.0,
-                "ki": 0.0,
-                "max_torque": 50.0,
-                "acceleration": 500.0,
-                "torque_enabled": True,
-            }
-
-            resp = await kos.actuator.get_actuators_state()
-            actuator_ids = [s.actuator_id for s in resp.states]
-
-            for aid in actuator_ids:
-                await kos.actuator.configure_actuator(actuator_id=aid, **DEFAULT_CONFIG)
-        
-        asyncio.run(configure_actuators())
-    
+    from kos_zbot.conversation.main import run_voice_system
+    from kos_zbot.tests.kos_connection import kos_ready_async
+    if not kos_ready(ip): 
+        print(f"KOS service not available at {ip}:50051")
+        print("Please start the KOS service with 'kos service'")
+        print("or specify a different IP address with '--ip <ip>'")
+        return
+   
     click.echo("Starting conversation demo...")
-    asyncio.run(conversation_func())
+    asyncio.run(run_voice_system())
 
 @demo.command()
 @click.option(

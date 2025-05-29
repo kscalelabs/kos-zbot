@@ -221,6 +221,16 @@ class SCSMotorController:
 
         self.metadata = robot_metadata
         self.actuator_limits = {}
+        self.actuator_gains= {}
+        # Set default gains for all discovered actuators
+        for actuator in available_actuators:
+            actuator_id = actuator["id"]
+            self.actuator_gains[actuator_id] = {
+                'kp': 22,
+                'kd': 2,
+                'joint_name': f'actuator_{actuator_id}'  # fallback name
+            }
+            
         if self.metadata is not None:
             for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
                 actuator_id = joint_metadata.id
@@ -230,7 +240,13 @@ class SCSMotorController:
                         'max_angle_deg': float(joint_metadata.max_angle_deg) if joint_metadata.max_angle_deg is not None else None,
                         'joint_name': joint_name
                     }
+                    if joint_metadata.kp is not None:
+                        self.actuator_gains[actuator_id]['kp'] = float(joint_metadata.kp)
+                    if joint_metadata.kd is not None:
+                        self.actuator_gains[actuator_id]['kd'] = float(joint_metadata.kd)
+
             self.log.info(f"Loaded angle limits for {len(self.actuator_limits)} actuators")
+            self.log.info(f"Loaded gains for {len(self.actuator_gains)} actuators")
         else:
             self.log.warning("No robot metadata available. Running without limiit enforcement.")
 
@@ -238,8 +254,34 @@ class SCSMotorController:
             for actuator in available_actuators:
                 self._add_actuator(actuator["id"])
 
+        self._apply_default_gains()
+
         # Initialize thread
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
+
+    def _apply_default_gains(self, actuator_id: int = None) -> bool:
+        """Apply default/metadata gains to specific actuator or all actuators"""
+        if actuator_id is not None:
+            # Apply to specific actuator
+            if actuator_id not in self.actuator_gains:
+                self.log.warning(f"No gains configured for actuator {actuator_id}")
+                return False
+                
+            gains = self.actuator_gains[actuator_id]
+            config = {
+                'kp': gains['kp'],
+                'kd': gains['kd'],
+                'torque_enabled': True,
+                'acceleration': 1000
+            }
+            return self.configure_actuator(actuator_id, config)
+        else:
+            # Apply to all actuators
+            success = True
+            for aid in self.actuator_ids:
+                if not self._apply_default_gains(aid):
+                    success = False
+            return success
 
     def _add_actuator(self, actuator_id: int) -> bool:
         """Add a new actuator to the controller"""

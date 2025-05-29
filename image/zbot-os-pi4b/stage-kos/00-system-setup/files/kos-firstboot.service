@@ -1,0 +1,14 @@
+[Unit]
+Description=KOS First Boot Setup
+After=multi-user.target
+ConditionPathExists=!/var/lib/kos/first-boot-done
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'source /home/kos/conda/etc/profile.d/conda.sh && conda activate kos && setcap cap_sys_nice=eip $(readlink -f $(which python))'
+ExecStart=/bin/mkdir -p /var/lib/kos
+ExecStart=/bin/touch /var/lib/kos/first-boot-done
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

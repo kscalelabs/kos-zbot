@@ -1,0 +1,4 @@
+[submodule "image/pi-gen"]
+	path = image/pi-gen
+	url = https://github.com/RPi-Distro/pi-gen
+	branch = arm64

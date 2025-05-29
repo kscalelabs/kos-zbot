@@ -88,27 +88,6 @@ async def run_sine_test(
         log.error("No valid actuators to test. Exiting.")
         return
 
-    #log.info("configure actuators")
-    #for actuator_id in valid_actuator_ids:
-    #    await kos.actuator.configure_actuator(
-    #        actuator_id=actuator_id,
-    #        kp=kp,
-    #        kd=kd,
-    #        ki=ki,
-    #        acceleration=acceleration,
-    #        max_torque=max_torque,
-    #        torque_enabled=torque_enabled,
-    #    )
-
-    #log.info("move to start position")
-    #commands = []
-    #for pattern in wave_patterns.values():
-    #    pattern_start_pos = pattern.get("start_pos", start_pos)
-    #    for aid in pattern["actuators"]:
-    #        if aid in valid_actuator_ids:
-    #            commands.append({"actuator_id": aid, "position": pattern_start_pos})
-    #await kos.actuator.command_actuators(commands)
-    #await asyncio.sleep(2.0)
 
     t = np.arange(0, duration, 1 / sample_rate)
 

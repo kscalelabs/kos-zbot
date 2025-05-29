@@ -7,8 +7,9 @@ import tempfile
 import subprocess
 from openai import AsyncOpenAI
 from typing import Any, Dict, List
-from kos_zbot.tests.hello_wave import run_sine_test
+from kos_zbot.scripts.hello_wave import run_sine_test
 from kos_zbot.scripts.salute import salute as salute_func
+
 
 class ToolManager:
 

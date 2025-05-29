@@ -64,6 +64,13 @@ async def run_sine_test(
         log.error("KOS service not available at %s:50051", kos_ip)
         return
 
+    try:
+        state_resp = await kos.actuator.get_actuators_state()
+        available_ids = {s.actuator_id for s in state_resp.states}
+    except Exception as e:
+        log.error(f"No actuators available: {e}")
+        return
+
     interrupted = False
 
     def handle_sigint(signum, frame):
@@ -71,14 +78,7 @@ async def run_sine_test(
         interrupted = True
         log.info("sigint received")
 
-    signal.signal(signal.SIGINT, handle_sigint)
-
-    try:
-        state_resp = await kos.actuator.get_actuators_state()
-        available_ids = {s.actuator_id for s in state_resp.states}
-    except Exception as e:
-        log.error(f"No actuators available: {e}")
-        return
+    original_handler = signal.signal(signal.SIGINT, handle_sigint)
 
     valid_actuator_ids = [aid for aid in actuator_ids if aid in available_ids]
     missing_actuators = [aid for aid in actuator_ids if aid not in available_ids]
@@ -163,6 +163,9 @@ async def run_sine_test(
         commands = [{"actuator_id": aid, "position": start_pos} for aid in valid_actuator_ids]
         await kos.actuator.command_actuators(commands)
         await asyncio.sleep(1.0)
+
+        # Always restore the original signal handler
+        signal.signal(signal.SIGINT, original_handler)
 
         await kos.close()
         log.info("test complete")

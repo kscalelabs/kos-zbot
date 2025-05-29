@@ -50,12 +50,6 @@ async def salute(
         log.error("KOS service not available at %s:50051", kos_ip)
         return
     
-    interrupted = False
-    def handle_sigint(signum, frame):
-        nonlocal interrupted
-        interrupted = True    
-    signal.signal(signal.SIGINT, handle_sigint)
-
     try:
         state_resp = await kos.actuator.get_actuators_state()
         available_ids = {s.actuator_id for s in state_resp.states}
@@ -69,8 +63,19 @@ async def salute(
     if not valid_actuator_ids:
         log.error("No valid actuators to test. Exiting")
         return
+    
+    interrupted = False
+    def handle_sigint(signum, frame):
+        nonlocal interrupted
+        interrupted = True    
+        log.info("sigint received")
+    
+    # Save the original signal handler
+    original_handler = signal.signal(signal.SIGINT, handle_sigint)
 
     # Assume position
+    log.info("zeroing actuators")
+
     zero_commands = []
     for aid in available_ids:
         zero_commands.append({"actuator_id": aid, "position": 0}) 
@@ -108,9 +113,17 @@ async def salute(
         
     except KeyboardInterrupt:
         pass
+    finally:
+        log.info("salute concluded, return to start position")
+        await kos.actuator.command_actuators(zero_commands)
+        
+        # Always restore the original signal handler
+        signal.signal(signal.SIGINT, original_handler)
+        
+        await kos.close()
+        log.info("test complete")
 
-    # Conclude
-    await kos.actuator.command_actuators(zero_commands)
+    
 
 
 if __name__ == "__main__":

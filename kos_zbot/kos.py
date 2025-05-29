@@ -21,6 +21,7 @@ import logging
 import signal
 from kos_zbot.utils.logging import KOSLoggerSetup, get_log_level, get_logger
 
+
 import os
 import sys
 import fcntl
@@ -406,26 +407,16 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
 
     metadata = None
-    try:
-        metadata_manager = RobotMetadata.get_instance()
-        
-        if metadata_manager.robot_name:
-            try:
-                # Try to load robot metadata from the API
-                metadata = await metadata_manager.get_metadata_async()
-                log.info(f"Successfully loaded metadata for robot: {metadata_manager.robot_name}")
-            except KScaleClientError as e:
-                if "404" in str(e) or "not found" in str(e).lower():
-                    log.error(f"Robot '{metadata_manager.robot_name}' not found. Please check the robot name or create the robot in the KScale platform.")
-                    sys.exit(1)
-                else:
-                    log.warning(f"Failed to load robot metadata: {e}. Running without robot-specific configuration.")
-            except Exception as e:
-                log.warning(f"Failed to load robot metadata: {e}. Running without robot-specific configuration.")
-        else:
-            log.info("No robot name specified. Running KOS service without robot-specific configuration.")
-    except ImportError:
-        log.info("Robot metadata module not available. Running KOS service without robot-specific configuration.")
+    metadata_manager = RobotMetadata.get_instance()
+    
+    if metadata_manager.robot_name:
+        # Try to load robot metadata from the API
+        metadata = await metadata_manager.get_metadata_async()
+        log.info(f"Successfully loaded metadata for robot: {metadata_manager.robot_name}")
+
+    else:
+        log.info("No robot name specified. Running KOS service without robot-specific configuration.")
+
 
     # Initialize hardware
     try:

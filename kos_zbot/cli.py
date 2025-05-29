@@ -525,6 +525,56 @@ cli.add_command(demo)
 
 @demo.command()
 @click.option(
+    "--ip",
+    type=str,
+    default="127.0.0.1",
+    show_default=True,
+    help="KOS service IP address",
+)
+@click.option(
+    "--configure",
+    type=bool,
+    default=True,
+    show_default=True,
+    help="Configure the actuators prior to running the demo",
+)
+def conversation(ip, configure):
+    """Run the conversation demo."""
+    import asyncio
+    import kos_zbot.conversation.main as conversation_func
+
+    if configure:
+        async def configure_actuators():
+            from pykos import KOS
+            from kos_zbot.tests.kos_connection import kos_ready_async
+            if await kos_ready_async(ip):
+                kos = KOS(ip)
+            else:
+                print(f"KOS service not available at {ip}:50051")
+                return
+            
+            DEFAULT_CONFIG = {
+                "kos_ip": ip,
+                "kp": 15.0,
+                "kd": 3.0,
+                "ki": 0.0,
+                "max_torque": 50.0,
+                "acceleration": 500.0,
+                "torque_enabled": True,
+            }
+
+            resp = await kos.actuator.get_actuators_state()
+            actuator_ids = [s.actuator_id for s in resp.states]
+
+            for aid in actuator_ids:
+                await kos.actuator.configure_actuator(actuator_id=aid, **DEFAULT_CONFIG)
+        
+        asyncio.run(configure_actuators())
+
+    asyncio.run(conversation_func())
+
+@demo.command()
+@click.option(
     "--duration",
     type=float,
     default=5.0,

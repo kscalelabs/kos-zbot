@@ -232,9 +232,33 @@ class SCSMotorController:
             }
             
         if self.metadata is not None:
+            # Check for metadata/hardware mismatches before applying settings
+            metadata_actuator_ids = set()
+            for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
+                if joint_metadata.id is not None:
+                    metadata_actuator_ids.add(joint_metadata.id)
+            
+            discovered_actuator_ids = {actuator["id"] for actuator in available_actuators}
+            
+            # Check for actuators in metadata but not found on bus
+            missing_actuators = metadata_actuator_ids - discovered_actuator_ids
+            if missing_actuators:
+                missing_list = sorted(missing_actuators)
+                self.log.error(f"Robot metadata specifies actuator IDs {missing_list} but they were not found on the bus")
+                self.log.error(f"Found actuators: {sorted(discovered_actuator_ids)}")
+                self.log.error("Please check your hardware connections or update your robot metadata")
+                raise NoActuatorsFoundError(f"Metadata/hardware mismatch: actuators {missing_list} not found on bus")
+            
+            # Check for extra actuators on bus not in metadata (warning only)
+            extra_actuators = discovered_actuator_ids - metadata_actuator_ids
+            if extra_actuators:
+                extra_list = sorted(extra_actuators)
+                self.log.warning(f"Found actuators {extra_list} on bus but they are not in robot metadata")
+            
+            # Now safely apply metadata settings
             for joint_name, joint_metadata in self.metadata.joint_name_to_metadata.items():
                 actuator_id = joint_metadata.id
-                if actuator_id is not None:
+                if actuator_id is not None and actuator_id in self.actuator_gains:
                     self.actuator_limits[actuator_id] = {
                         'min_angle_deg': float(joint_metadata.min_angle_deg) if joint_metadata.min_angle_deg is not None else None,
                         'max_angle_deg': float(joint_metadata.max_angle_deg) if joint_metadata.max_angle_deg is not None else None,
@@ -244,11 +268,13 @@ class SCSMotorController:
                         self.actuator_gains[actuator_id]['kp'] = float(joint_metadata.kp)
                     if joint_metadata.kd is not None:
                         self.actuator_gains[actuator_id]['kd'] = float(joint_metadata.kd)
+                    # Update joint name from metadata
+                    self.actuator_gains[actuator_id]['joint_name'] = joint_name
 
             self.log.info(f"Loaded angle limits for {len(self.actuator_limits)} actuators")
             self.log.info(f"Loaded gains for {len(self.actuator_gains)} actuators")
         else:
-            self.log.warning("No robot metadata available. Running without limiit enforcement.")
+            self.log.warning("No robot metadata available. Running without limit enforcement.")
 
         with self._control_lock:
             for actuator in available_actuators:

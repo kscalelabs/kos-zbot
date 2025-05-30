@@ -104,7 +104,7 @@ class AudioProcessor(AsyncIOEventEmitter):
     async def connect(self):
         """Connect to OpenAI's API and start processing loop."""
         async with self.client.beta.realtime.connect(
-            model="gpt-4o-mini-realtime-preview"
+            model="gpt-4o-realtime-preview"
         ) as conn:
             self.connection = conn
             self.connected.set()

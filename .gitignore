@@ -1,7 +1,9 @@
+config.json
+debug_audio/
+
 *.pyc
 *.py[cod]
 *$py.class
-debug_audio/
 *.so
 .Python
 build/

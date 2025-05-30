@@ -276,14 +276,6 @@ class AudioPlayer(AsyncIOEventEmitter):
             self.stream.close()
             self.stream = None
 
-    def set_volume(self, volume: float):
-        """Set the playback volume.
-
-        Args:
-            volume (float): Volume level between 0.0 (silent) and 1.0 (maximum)
-        """
-        self.volume = max(0.0, min(1.0, volume))
-
     def get_queue_length(self):
         """Get the current length of the audio queue.
 

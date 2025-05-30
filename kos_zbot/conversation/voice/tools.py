@@ -1,148 +1,88 @@
+import os
 import json
 import time
 import base64
+import asyncio
 import tempfile
 import subprocess
-import os
+from openai import AsyncOpenAI
 from typing import Any, Dict, List
-from pyee.asyncio import AsyncIOEventEmitter
-from openai import OpenAI
-import dotenv
-import asyncio
-from kos_zbot.tests.hello_wave import run_sine_test
 
-dotenv.load_dotenv()
+from kos_zbot.conversation.animation import AnimationController
 
+class ToolManager:
 
-class ToolManager(AsyncIOEventEmitter):
-    """Manages LLM tools for the voice system.
-
-    This class handles the definition, registration, and execution of LLM tools.
-    It manages the tool definitions and handles invoking the appropriate functions
-    when tools are called by the LLM.
-
-    Attributes:
-        robot: Reference to the main robot instance
-        connection: Active connection to OpenAI API
-
-    Events emitted:
-        - set_volume: When the volume tool is called
-    """
-
-    def __init__(self, robot=None, api_key=None):
-        """Initialize the ToolManager.
-
-        Args:
-            robot: Reference to the main robot instance
-            api_key: OpenAI API key for vision functionality
-        """
+    def __init__(self, robot=None, openai_api_key=None):
         super().__init__()
         self.robot = robot
         self.connection = None
-        # Initialize OpenAI client for vision API
-        if api_key is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OpenAI API key must be provided either through constructor or OPENAI_API_KEY environment variable")
-        from openai import AsyncOpenAI
+        self.tools = {} 
+        self.motion_controller = AnimationController()
+
         self.openai_client = AsyncOpenAI(
-            api_key=api_key,
+            api_key=openai_api_key,
             base_url="https://api.openai.com/v1"
+        )
+        
+        self.register_tool(
+            "get_current_time",
+            "Get the current time of the day.",
+            {"type": "object", "properties": {}},
+            self._handle_get_current_time
+        )
+        self.register_tool(
+            "describe_surroundings",
+            "Describe the environment you see around you. Use this if the user asks what you see, where you are, what's around you, to look around, or anything similar.",
+            {"type": "object", "properties": {}},
+            self._handle_describe_surroundings
+        )
+        self.register_tool(
+            "wave_hand",
+            "Physically wave the robot's hand. Use this for greetings and departures.",
+            {"type": "object", "properties": {}},
+            self._handle_wave_hand
+        )
+        self.register_tool(
+            "salute",
+            "Physically salute the robot's hand for formal greetings and patriotic situations.",
+            {"type": "object", "properties": {}},
+            self._handle_salute
         )
 
     def set_connection(self, connection):
-        """Set the OpenAI API connection.
-
-        Args:
-            connection: Active connection to OpenAI API
-        """
         self.connection = connection
 
+    def register_tool(self, name: str, description: str, parameters: Dict[str, Any], handler):
+        self.tools[name] = {"description": description, "parameters": parameters, "handler": handler}
+
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
-        """Get the tool definitions for the LLM.
-
-        Returns:
-            List of tool definitions in the format expected by OpenAI
-        """
-        return [
-            {
+        definitions = []
+        for name, info in self.tools.items():
+            definitions.append({
                 "type": "function",
-                "name": "get_current_time",
-                "description": "Get the current time of the day.",
-                "parameters": {"type": "object", "properties": {}},
-            },
-            {
-                "type": "function",
-                "name": "set_volume",
-                "description": "Set the volume of the robot's voice",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "volume": {
-                            "type": "number",
-                            "description": "Volume level between 0.0 (silent) and 1.0 (maximum)",
-                            "minimum": 0.0,
-                            "maximum": 1.0,
-                        }
-                    },
-                    "required": ["volume"],
-                },
-            },
-            {
-                "type": "function",
-                "name": "describe_surroundings",
-                "description": "Take a photo with the camera and describe what is visible in the surroundings",
-                "parameters": {"type": "object", "properties": {}},
-            },
-           
-            {
-                "type": "function",
-                "name": "wave_hand",
-                "description": "Physically wave the robot's hand. Use this for greetings (hello, hi, hey, good morning, good afternoon, good evening) and departures (goodbye, bye, see you later).",
-                "parameters": {"type": "object", "properties": {}},
-            },
-
-            {
-                "type": "function",
-                "name": "salute",
-                "description": "Physically salute the robot's hand. Use this for formal greetings and patriotic situations (at attention, salute, etc).",
-                "parameters": {"type": "object", "properties": {}},
-            }
-        ]
+                "name": name,
+                "description": info["description"],
+                "parameters": info["parameters"]
+            })
+        return definitions
 
     async def handle_tool_call(self, event):
-        """Handle a tool call from the LLM.
-
-        Args:
-            event: Tool call event from OpenAI API
-
-        Returns:
-            bool: True if the tool call was handled, False otherwise
-        """
         if not self.connection:
             print("No connection available for tool call")
             return False
 
-        handlers = {
-            "get_current_time": self._handle_get_current_time,
-            "set_volume": self._handle_set_volume,
-            "describe_surroundings": self._handle_describe_surroundings,
-            "wave_hand": self._handle_wave_hand,
-            "salute": self._handle_salute,
-        }
-
-        handler = handlers.get(event.name)
-        if handler:
-            await handler(event)
-            return True
-        else:
+        tool_info = self.tools.get(event.name)
+        if not tool_info:
             print(f"Unknown tool: {event.name}")
             return False
+        
+        print(f"Tool call: {event.name}")
+
+        handler = tool_info["handler"]
+        await handler(event)
+        return True
 
     def capture_jpeg_cli(self, width: int = 640, height: int = 480, warmup_ms: int = 500) -> bytes:
-        """Capture a single JPEG image via libcamera-jpeg CLI in headless mode.
-        Returns the raw JPEG bytes.
-        """
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             cmd = [
                 "libcamera-jpeg",
@@ -165,22 +105,14 @@ class ToolManager(AsyncIOEventEmitter):
             return data
 
     async def _handle_describe_surroundings(self, event):
-        """Handle the describe_surroundings tool call.
-
-        Args:
-            event: Tool call event containing the request details
-        """
         try:
-            # Send immediate acknowledgment
             await self._create_tool_response(event.call_id, "Let me look...")
             
-            # Capture and process image
             jpeg_bytes = self.capture_jpeg_cli()
             base64_image = base64.b64encode(jpeg_bytes).decode('utf-8')
             
-            # Get description from Vision API
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4.1",
+                model="gpt-4o",
                 messages=[
                     {
                         "role": "user",
@@ -206,36 +138,12 @@ class ToolManager(AsyncIOEventEmitter):
             await self._create_tool_response(event.call_id, f"Sorry, I had trouble processing the image: {str(e)}")
 
     async def _handle_get_current_time(self, event):
-        """Handle the get_current_time tool call.
-
-        Args:
-            event: Tool call event
-        """
         current_time = time.strftime("%I:%M %p")
         message = f"The current time is {current_time}."
         await self._create_tool_response(event.call_id, message)
 
-    async def _handle_set_volume(self, event):
-        """Handle the set_volume tool call.
-
-        Args:
-            event: Tool call event
-        """
-        args = json.loads(event.arguments)
-        volume = float(args["volume"])
-
-        self.emit("set_volume", volume)
-
-        message = f"Volume has been set to {int(volume * 100)}%"
-        await self._create_tool_response(event.call_id, message)
 
     async def _create_tool_response(self, call_id, output):
-        """Create a response for a tool call.
-
-        Args:
-            call_id (str): ID of the tool call
-            output (str): Output of the tool call
-        """
         if not self.connection:
             print("No connection available for tool response")
             return
@@ -249,24 +157,14 @@ class ToolManager(AsyncIOEventEmitter):
         )
 
     async def _handle_wave_hand(self, event):
-        """Handle the wave_hand tool call.
-
-        Args:
-            event: Tool call event
-        """
         try:
-            # Import the hand wave function
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))            
-            # Hand actuator IDs (same as in CLI)
             HAND_ACTUATOR_IDS = [11, 12, 13]
             
             HAND_WAVE_CONFIG = {
                 "kos_ip": "127.0.0.1",
                 "amplitude": 15.0,
                 "frequency": 1.5,
-                "duration": 3.0,  # Shorter duration for quick wave
+                "duration": 3.0,
                 "sample_rate": 50.0,
                 "start_pos": 0.0,
                 "sync_all": False,
@@ -307,29 +205,15 @@ class ToolManager(AsyncIOEventEmitter):
                 "torque_enabled": True,
             }
             
-            # Send immediate response
             await self._create_tool_response(event.call_id, "Waving hello!")
-            
-            # Execute the wave in the background
-            asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
+            self.motion_controller.wave(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG)
+            #asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
             
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
 
     async def _handle_salute(self, event):
-        """Handle the salute tool call.
-
-        Args:
-            event: Tool call event
-        """
         try:
-            # Import the salute function
-            import sys
-            import os
-            sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
-            from kos_zbot.scripts.salute import salute as salute_func
-
-            # Hand actuator IDs (same as in CLI)
             HAND_ACTUATOR_IDS = [21, 22, 23, 24]
 
             SALUTE_CONFIG = {
@@ -337,12 +221,9 @@ class ToolManager(AsyncIOEventEmitter):
                 "squeeze_duration": 5.0,
             }
 
-             # Send immediate response
             await self._create_tool_response(event.call_id, "At attention!")
-            
-            # Execute the wave in the background
-            asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
-            
+            #asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+            self.motion_controller.salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG)
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
 

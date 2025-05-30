@@ -656,7 +656,7 @@ def hand_wave(duration, amplitude, frequency, ip):
                 "frequency": 0.25,
                 "phase_offset": 0.0,
                 "freq_multiplier": 1.0,
-                "start_pos": 120.0,
+                "start_pos": 150.0,
                 "position_offset": 0.0,
             },
              "shoulder_roll": {

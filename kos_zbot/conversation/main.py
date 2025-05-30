@@ -75,6 +75,7 @@ class Voice:
 async def run_voice_system(openai_api_key=None, config=None):
     if openai_api_key is None:
         openai_api_key = os.getenv("OPENAI_API_KEY")
+        print(openai_api_key)
         if not openai_api_key:
             raise ValueError(
                 "OpenAI API key is required. Set OPENAI_API_KEY environment variable."

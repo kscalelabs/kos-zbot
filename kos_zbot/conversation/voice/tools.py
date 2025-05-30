@@ -44,9 +44,21 @@ class ToolManager:
         )
         self.register_tool(
             "salute",
-            "Physically salute the robot's hand for formal greetings and patriotic situations.",
+            "Physically salute the robot's hand. Use this for formal greetings and being called to attention. Prefer waving for general greetings.",
             {"type": "object", "properties": {}},
             self._handle_salute
+        )
+        # self.register_tool(
+        #     "squat",
+        #     "Squat down as an excersize. Do this if asked to. Don't say anything when you're done.",
+        #     {"type": "object", "properties": {}},
+        #     self._handle_squat
+        # )
+        self.register_tool(
+            "ymca",
+            "Perform the YMCA dance. Do this if asked to do the ymca dance, if asked to dance, or if you hear YMCA the song playing.",
+            {"type": "object", "properties": {}},
+            self._handle_ymca
         )
 
     def set_connection(self, connection):
@@ -221,13 +233,40 @@ class ToolManager:
                 "squeeze_duration": 5.0,
             }
 
-            await self._create_tool_response(event.call_id, "At attention!")
+            await self._create_tool_response(event.call_id, "Saluting to the audience!")
             #asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
             self.motion_controller.salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG)
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
 
+    # No options for now
+    async def _handle_squat(self, event):
+        # PLACEHOLDERS
+        HAND_ACTUATOR_IDS = [21, 22, 23, 24]
+        CONFIG = {}
 
+        try:
+            await self._create_tool_response(event.call_id, "")
+            self.motion_controller.squat(HAND_ACTUATOR_IDS, **CONFIG)
+        except Exception as e:
+            print(e)
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't squat: {str(e)}")
+
+    # No options for now
+    async def _handle_ymca(self, event):
+        # PLACEHOLDERS
+        HAND_ACTUATOR_IDS = [21, 22, 23, 24]
+        CONFIG = {}       
+        
+        try: 
+            await self._create_tool_response(event.call_id, "")
+            self.motion_controller.ymca(HAND_ACTUATOR_IDS, **CONFIG)
+        except Exception as e: 
+            print(e)
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't do the YMCA dance: {str(e)}")
+
+
+            
             
          
 

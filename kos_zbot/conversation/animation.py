@@ -3,6 +3,8 @@ from multiprocessing import Queue, Process
 import pickle
 from kos_zbot.scripts.hello_wave import run_sine_test
 from kos_zbot.scripts.salute import salute as salute_func
+from kos_zbot.scripts.squat import play_keyframes as squat_func
+from kos_zbot.scripts.ymca import play_keyframes as ymca_func
 
 class AnimationController:
     def __init__(self):
@@ -28,6 +30,12 @@ class AnimationController:
                         await run_sine_test(*args, **kwargs)
                     elif motion_type == "salute":
                         await salute_func(*args, **kwargs)
+                    elif motion_type == "squat":
+                        print("Squat motion initialated")
+                        await squat_func()
+                    elif motion_type == "ymca":
+                        print("YMCA Dance initiated")
+                        await ymca_func()
                         
                 except Exception as e:
                     print(f"Motion error: {e}")
@@ -39,6 +47,13 @@ class AnimationController:
     
     def salute(self, actuator_ids, **config):
         self.motion_queue.put(("salute", (actuator_ids,), config))
+
+    # Squat -- currently hard coded, no adjustments
+    def squat(self, actuator_ids, **config):
+        self.motion_queue.put(("squat", (actuator_ids,), config))
+    # Basic YMCA -- currently hard coded, no adjustments
+    def ymca(self, actuator_ids, **config):
+        self.motion_queue.put(("ymca", (actuator_ids,), config))
     
     def shutdown(self):
         self.motion_queue.put(None)

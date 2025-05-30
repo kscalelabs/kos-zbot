@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 import sys
+from pathlib import Path
 
 from pykos import KOS
 from kos_zbot.tests.kos_connection import kos_ready_async
@@ -18,12 +19,15 @@ def get_logger(name):
     logger.setLevel(logging.INFO)  # Or DEBUG for more verbosity
     return logger
 
-async def play_keyframes(json_file):
-    vel = 90
+async def play_keyframes():
+    vel = 110
     threshold = 15
     kp = 11
     kd = 10
     accel = 100
+
+    script_dir = Path(__file__).resolve().parent
+    json_file = script_dir / "keyframes" / "ymca_basic.json"
 
     log = get_logger(__name__)
 
@@ -50,13 +54,26 @@ async def play_keyframes(json_file):
                 acceleration = accel,
                 torque_enabled = True
         )
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = kp,
+                kd = kd,
+                acceleration = accel,
+                torque_enabled = True
+        )
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = kp,
+                kd = kd,
+                acceleration = accel,
+                torque_enabled = True
+        )
 
-
-    frames = data['keyframes'].values()
 
     for name, frame in data['keyframes'].items():
-        if name == "wait":
+        if name.startswith("wait"):
             await asyncio.sleep(frame)
+            continue
 
         frame = {int(k): v for k, v in frame.items()}
         commands = [{"actuator_id": a_id,
@@ -72,6 +89,5 @@ async def play_keyframes(json_file):
             there = all(abs(state.position - frame[state.actuator_id]) < threshold for
                     state in states.states)
 
-json_file = sys.argv[1]
-
-asyncio.run(play_keyframes(json_file))
+if __name__ == "__main__":
+    asyncio.run(play_keyframes())

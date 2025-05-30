@@ -90,6 +90,15 @@ async def salute(
         {"actuator_id": 23, "position": -60}
     ])
 
+    for a_id in available_ids:
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = 15,
+                kd = 5,
+                acceleration = 0,
+                torque_enabled = True
+        )
+
    # Hand squeezing   
     t = np.arange(0, squeeze_duration, 1 / squeeze_sample_rate)
 

@@ -7,9 +7,8 @@ import tempfile
 import subprocess
 from openai import AsyncOpenAI
 from typing import Any, Dict, List
-from kos_zbot.scripts.hello_wave import run_sine_test
-from kos_zbot.scripts.salute import salute as salute_func
 
+from kos_zbot.conversation.animation import AnimationController
 
 class ToolManager:
 
@@ -18,6 +17,7 @@ class ToolManager:
         self.robot = robot
         self.connection = None
         self.tools = {} 
+        self.motion_controller = AnimationController()
 
         self.openai_client = AsyncOpenAI(
             api_key=openai_api_key,
@@ -206,7 +206,8 @@ class ToolManager:
             }
             
             await self._create_tool_response(event.call_id, "Waving hello!")
-            asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
+            self.motion_controller.wave(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG)
+            #asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
             
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
@@ -221,8 +222,8 @@ class ToolManager:
             }
 
             await self._create_tool_response(event.call_id, "At attention!")
-            asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
-            
+            #asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
+            self.motion_controller.salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG)
         except Exception as e:
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
 

@@ -1,4 +1,4 @@
-import os
+gmport os
 import json
 import time
 import base64
@@ -32,7 +32,7 @@ class ToolManager:
         )
         self.register_tool(
             "describe_surroundings",
-            "Take a photo with the camera and describe what is visible in the surroundings",
+            "Describe the environment you see around you. Use this if the user asks what you see, where you are, what's around you, to look around, or anything similar.",
             {"type": "object", "properties": {}},
             self._handle_describe_surroundings
         )

@@ -97,7 +97,7 @@ async def salute(
                 actuator_id = a_id,
                 kp = 16 if a_id in s_3250s else 22,
                 kd = 3 if a_id in s_3250s else 12,
-                acceleration = 2249,
+                acceleration = 1000,
                 torque_enabled = True
         )
 

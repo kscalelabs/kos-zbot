@@ -90,14 +90,20 @@ async def salute(
         {"actuator_id": 23, "position": -60}
     ])
 
+    s_3250s = [11, 12, 13, 14, 21, 22, 23, 24]
+
     for a_id in available_ids:
         await kos.actuator.configure_actuator(
                 actuator_id = a_id,
-                kp = 15,
-                kd = 5,
+                kp = 16 if a_id in s_3250s else 22,
+                kd = 3 if a_id in s_3250s else 12,
                 acceleration = 0,
                 torque_enabled = True
         )
+
+    # commands = [{"actuator_id": state.actuator_id, "position": state.position} for state in state_resp.states]
+    # await kos.actuator.command_actuators(commands)
+    await asyncio.sleep(.5)
 
    # Hand squeezing   
     t = np.arange(0, squeeze_duration, 1 / squeeze_sample_rate)

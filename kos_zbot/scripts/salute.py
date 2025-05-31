@@ -101,8 +101,8 @@ async def salute(
                 torque_enabled = True
         )
 
-    # commands = [{"actuator_id": state.actuator_id, "position": state.position} for state in state_resp.states]
-    # await kos.actuator.command_actuators(commands)
+    commands = [{"actuator_id": state.actuator_id, "position": state.position} for state in state_resp.states]
+    await kos.actuator.command_actuators(commands)
     await asyncio.sleep(.5)
 
    # Hand squeezing   

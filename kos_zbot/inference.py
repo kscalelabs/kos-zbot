@@ -277,6 +277,7 @@ async def run_policy_loop(
               
             if not policy_loop.init_policy(model_file, model_provider):
                 log.error("Failed to initialize policy")
+                return 1
         except Exception as e:
             log.error(f"Error initializing policy: {e}")
 

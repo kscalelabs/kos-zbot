@@ -6,6 +6,7 @@ from typing import Dict, Optional
 from kscale import K
 from kscale.web.gen.api import JointMetadataOutput, RobotURDFMetadataOutput
 from kscale.web.utils import get_robots_dir, should_refresh_file
+from kos_zbot.utils.logging import get_logger
 
 class RobotMetadata:
     """Simple metadata manager with singleton pattern."""
@@ -21,6 +22,7 @@ class RobotMetadata:
     def __init__(self):
         self.robot_name = None
         self.metadata = None
+        self.log = get_logger(__name__)
     
     async def get_metadata_async(self) -> RobotURDFMetadataOutput:
         """Get metadata for the current robot."""
@@ -71,6 +73,34 @@ class RobotMetadata:
         """Set the robot name and clear metadata cache."""
         self.robot_name = robot_name
         self.metadata = None  # Clear cache to ensure fresh load
+
+    def get_joint_to_actuator_mapping(self) -> dict[str, int]:
+        """Get joint-to-actuator ID mapping from robot metadata.
+        
+        Returns:
+            Dictionary mapping joint names to actuator IDs.
+        """
+        try:
+            metadata = self.get_metadata()
+            
+            if metadata is None or metadata.joint_name_to_metadata is None:
+                self.log.error("No joint metadata available, returning empty mapping")
+                return {}
+            
+            joint_to_actuator = {}
+            for joint_name, joint_metadata in metadata.joint_name_to_metadata.items():
+                if joint_metadata.id is not None:
+                    joint_to_actuator[joint_name] = joint_metadata.id
+                else:
+                    self.log.warning(f"Joint {joint_name} has no actuator ID in metadata")
+            
+            self.log.info(f"Loaded {len(joint_to_actuator)} joint-to-actuator mappings from metadata")
+            return joint_to_actuator
+            
+        except Exception as e:
+            self.log.error(f"Failed to load joint metadata: {e}")
+            self.log.warning("Returning empty joint-to-actuator mapping")
+            return {}
 
 async def get_model_metadata(api: K, model_name: str, cache: bool = True) -> RobotURDFMetadataOutput:
     """Get robot metadata from the API or cached file."""

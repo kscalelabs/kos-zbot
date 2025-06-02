@@ -116,7 +116,7 @@ class PolicyLoop:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = f"logs/policy_log_{timestamp}.json"
         
-        self.policy_provider.save_logs(filename)
+        #self.policy_provider.save_logs(filename)
         
         self.log.info(f"Policy logs saved to {filename}")
 
@@ -274,19 +274,7 @@ async def run_policy_loop(
         try:
             model_provider = ModelProvider(actuator_controller, imu_manager)
             model_provider.set_action_scale(action_scale)
-
-            # Configure actuators based on model
-            log.info(f"Configuring actuators")
-            for joint_name, metadata in model_provider.actuator_metadata.items():
-                actuator_id = model_provider.joint_to_actuator[joint_name]
-                config = {
-                    "kp": metadata["kp"],
-                    "kd": metadata["kd"],
-                    "torque_enabled": True,
-                    "acceleration": 1000,
-                }
-                actuator_controller.configure_actuator(actuator_id, config)
-                          
+              
             if not policy_loop.init_policy(model_file, model_provider):
                 log.error("Failed to initialize policy")
         except Exception as e:

@@ -33,12 +33,9 @@ class AnimationController:
                     print(f"Motion error: {e}")
         
         asyncio.run(worker())
-    
-    def wave(self, actuator_ids, **config):
-        self.motion_queue.put(("wave", (actuator_ids,), config))
-    
-    def salute(self, actuator_ids, **config):
-        self.motion_queue.put(("salute", (actuator_ids,), config))
+
+    def play(self, name, actuator_ids, **config):
+        self.motion_queue.put((name, (actuator_ids,), config))
     
     def shutdown(self):
         self.motion_queue.put(None)

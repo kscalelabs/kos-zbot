@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from typing import Any, Dict, List
 from pyee.asyncio import AsyncIOEventEmitter
 from kos_zbot.conversation.tools.animation import AnimationController
-from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config
+from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config, get_robot_status
 
 
 class ToolManager(AsyncIOEventEmitter):
@@ -63,6 +63,12 @@ class ToolManager(AsyncIOEventEmitter):
             {"type": "object", "properties": {}},
             self._handle_salute
         )
+        self.register_tool(
+            "get_status",
+            "Get the current status of the robot including actuators, sensors, and system health. Use this when asked about robot status, actuator status, actuator positions, IMU status, accelerometer status, gyroscope status, magnetometer status, and system performance. The tool will provide you with a detailed status report. Ensure you report all the information you can get from the robot.",
+            {"type": "object", "properties": {}},
+            self._handle_get_status
+        )
 
     def set_connection(self, connection):
         self.connection = connection
@@ -96,8 +102,20 @@ class ToolManager(AsyncIOEventEmitter):
         handler = tool_info["handler"]
         await handler(event)
         return True
+    
+    async def _create_tool_response(self, call_id, output):
+        if not self.connection:
+            print("No connection available for tool response")
+            return
 
-
+        await self.connection.conversation.item.create(
+            item={
+                "type": "function_call_output",
+                "call_id": call_id,
+                "output": output,
+            }
+        )
+        
     async def _handle_set_volume(self, event):
         try:
             args = json.loads(event.arguments)
@@ -147,28 +165,12 @@ class ToolManager(AsyncIOEventEmitter):
         message = f"The current time is {current_time}."
         await self._create_tool_response(event.call_id, message)
 
-    async def _create_tool_response(self, call_id, output):
-        if not self.connection:
-            print("No connection available for tool response")
-            return
-
-        await self.connection.conversation.item.create(
-            item={
-                "type": "function_call_output",
-                "call_id": call_id,
-                "output": output,
-            }
-        )
-
     async def _handle_wave_hand(self, event):
         try:
             await self._create_tool_response(event.call_id, "Waving hello!")
             
             wave_config = get_wave_hand_config()
-            self.motion_controller.wave(
-                wave_config["actuator_ids"], 
-                **wave_config["config"]
-            )
+            self.motion_controller.play("wave", wave_config["actuator_ids"], **wave_config["config"])
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
@@ -178,10 +180,17 @@ class ToolManager(AsyncIOEventEmitter):
             await self._create_tool_response(event.call_id, "At attention!")
             
             salute_config = get_salute_config()
-            self.motion_controller.salute(
-                salute_config["actuator_ids"], 
-                **salute_config["config"]
-            )
+            self.motion_controller.play("salute", salute_config["actuator_ids"], **salute_config["config"])
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
+
+    async def _handle_get_status(self, event):
+        try:
+            await self._create_tool_response(event.call_id, "Let me check my current status...")
+            
+            status_info = await get_robot_status()
+            await self._create_tool_response(event.call_id, status_info)
+        except Exception as e:
+            print(f"Status check error: {e}")
+            await self._create_tool_response(event.call_id, "I'm having some difficulty checking my status right now, but I seem to be functioning normally for our conversation.")

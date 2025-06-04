@@ -6,7 +6,7 @@ import asyncio
 import datetime
 from pydub import AudioSegment
 from openai import AsyncOpenAI
-from .tools import ToolManager
+from ..tools.manager import ToolManager
 from pyee.asyncio import AsyncIOEventEmitter
 
 # Constants

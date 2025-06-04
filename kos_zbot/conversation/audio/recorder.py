@@ -5,7 +5,7 @@ import asyncio
 import sounddevice as sd
 import concurrent.futures
 from pydub import AudioSegment
-from .audio import CHANNELS, SAMPLE_RATE
+from .player import CHANNELS, SAMPLE_RATE
 from pyee.asyncio import AsyncIOEventEmitter
 
 

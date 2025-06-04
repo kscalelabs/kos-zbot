@@ -1,13 +1,11 @@
-import os
 import time
 import json
 import base64
-import tempfile
-import subprocess
 from openai import AsyncOpenAI
 from typing import Any, Dict, List
 from pyee.asyncio import AsyncIOEventEmitter
-from kos_zbot.conversation.animation import AnimationController
+from kos_zbot.conversation.tools.animation import AnimationController
+from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config
 
 
 class ToolManager(AsyncIOEventEmitter):
@@ -99,27 +97,6 @@ class ToolManager(AsyncIOEventEmitter):
         await handler(event)
         return True
 
-    def capture_jpeg_cli(self, width: int = 640, height: int = 480, warmup_ms: int = 500) -> bytes:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            cmd = [
-                "libcamera-jpeg",
-                "-o", tmp.name,
-                "-n",                # no preview, headless
-                "--width", str(width),
-                "--height", str(height),
-                "-t", str(warmup_ms),
-                "--nopreview",
-                "--quality", "75"
-            ]
-            try:
-                subprocess.run(cmd, check=True)
-                tmp.seek(0)
-                data = tmp.read()
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"Camera capture failed: {e}")
-            finally:
-                os.remove(tmp.name)
-            return data
 
     async def _handle_set_volume(self, event):
         try:
@@ -135,7 +112,7 @@ class ToolManager(AsyncIOEventEmitter):
         try:
             await self._create_tool_response(event.call_id, "Let me look...")
 
-            jpeg_bytes = self.capture_jpeg_cli()
+            jpeg_bytes = capture_jpeg_cli()
             base64_image = base64.b64encode(jpeg_bytes).decode('utf-8')
 
             response = await self.openai_client.chat.completions.create(
@@ -185,71 +162,26 @@ class ToolManager(AsyncIOEventEmitter):
 
     async def _handle_wave_hand(self, event):
         try:
-            HAND_ACTUATOR_IDS = [11, 12, 13]
-
-            HAND_WAVE_CONFIG = {
-                "kos_ip": "127.0.0.1",
-                "amplitude": 15.0,
-                "frequency": 1.5,
-                "duration": 3.0,
-                "sample_rate": 50.0,
-                "start_pos": 0.0,
-                "sync_all": False,
-                "wave_patterns": {
-                    "shoulder_pitch": {
-                        "actuators": [11],
-                        "amplitude": 5.0,
-                        "frequency": 0.25,
-                        "phase_offset": 0.0,
-                        "freq_multiplier": 1.0,
-                        "start_pos": 0,
-                        "position_offset": 0.0,
-                    },
-                    "shoulder_roll": {
-                        "actuators": [12],
-                        "amplitude": 10.0,
-                        "frequency": 0.75,
-                        "phase_offset": 0.0,
-                        "freq_multiplier": 1.0,
-                        "start_pos": 120,
-                        "position_offset": 0.0,
-                    },
-                    "elbow_roll": {
-                        "actuators": [13],
-                        "amplitude": 20.0,
-                        "frequency": 1,
-                        "phase_offset": 90.0,
-                        "freq_multiplier": 1.0,
-                        "start_pos": -60,
-                        "position_offset": 0.0,
-                    },
-                },
-                "kp": 15.0,
-                "kd": 3.0,
-                "ki": 0.0,
-                "max_torque": 50.0,
-                "acceleration": 500.0,
-                "torque_enabled": True,
-            }
-
             await self._create_tool_response(event.call_id, "Waving hello!")
-            self.motion_controller.wave(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG)
-
+            
+            wave_config = get_wave_hand_config()
+            self.motion_controller.wave(
+                wave_config["actuator_ids"], 
+                **wave_config["config"]
+            )
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
 
     async def _handle_salute(self, event):
         try:
-            HAND_ACTUATOR_IDS = [21, 22, 23, 24]
-
-            SALUTE_CONFIG = {
-                "kos_ip": "127.0.0.1",
-                "squeeze_duration": 5.0,
-            }
-
             await self._create_tool_response(event.call_id, "At attention!")
-            self.motion_controller.salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG)
+            
+            salute_config = get_salute_config()
+            self.motion_controller.salute(
+                salute_config["actuator_ids"], 
+                **salute_config["config"]
+            )
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")

@@ -1,10 +1,10 @@
 import os
 import dotenv
 import asyncio
-from .voice.tools import ToolManager
-from .voice.audio import AudioPlayer
-from .voice.recorder import AudioRecorder
-from .voice.processor import AudioProcessor
+from .tools.manager import ToolManager
+from .audio.player import AudioPlayer
+from .audio.recorder import AudioRecorder
+from .audio.processor import AudioProcessor
 from .config import load_config, get_microphone_id, get_speaker_id
 
 

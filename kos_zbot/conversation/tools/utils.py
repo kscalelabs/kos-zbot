@@ -1,7 +1,10 @@
 import os
+import time
+import asyncio
 import tempfile
 import subprocess
 from pykos import KOS
+from kos_zbot.tests.kos_connection import kos_ready_async
 
 def capture_jpeg_cli(width: int = 640, height: int = 480, warmup_ms: int = 500) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -170,3 +173,142 @@ async def get_robot_status(ip: str = "127.0.0.1"):
         return "I'm operational but unable to get detailed status information right now."
 
     return "\n".join(status_parts)
+
+async def move_actuators(ids, target_position, velocity=None, kp=None, kd=None, acceleration=None, wait=3.0):
+    """
+    Moves actuators to the target position 
+    """
+
+    kos_ip = "127.0.0.1"
+    if not await kos_ready_async(kos_ip):
+        return {
+            "success": False,
+            "error": f"KOS service not available at {kos_ip}:50051",
+            "actuator_states": []
+        }
+
+    kos = KOS(kos_ip)
+
+    if ids.lower() == 'all':
+        resp = await kos.actuator.get_actuators_state()
+        actuator_ids = [s.actuator_id for s in resp.states]
+    else:
+        try:
+            actuator_ids = [int(i.strip()) for i in ids.split(',')]
+        except ValueError:
+            return {
+                "success": False,
+                "error": "IDs must be comma-separated integers or 'all'",
+                "actuator_states": []
+            }
+    try:
+        target_pos = float(target_position)
+        if not 0 <= target_pos <= 360:
+            return {
+                "success": False,
+                "error": "Target position must be between 0 and 360 degrees",
+                "actuator_states": []
+            }
+    except ValueError:
+        return {
+            "success": False,
+            "error": "Target must be a valid number",
+            "actuator_states": []
+        }
+
+    try:
+        for aid in actuator_ids:
+            kwargs = {}
+            if kp is not None:
+                kwargs['kp'] = kp
+            if kd is not None:
+                kwargs['kd'] = kd
+            if acceleration is not None:
+                kwargs['acceleration'] = acceleration
+            else:
+                kwargs['acceleration'] = 1000
+            kwargs['torque_enabled'] = True  # Always enable torque
+            if kwargs:
+                await kos.actuator.configure_actuator(actuator_id=aid, **kwargs)
+
+        # Create commands with optional velocity
+        commands = []
+        for aid in actuator_ids:
+            cmd = {"actuator_id": aid, "position": target_pos}
+            if velocity is not None:
+                cmd["velocity"] = velocity
+            commands.append(cmd)
+
+        await kos.actuator.command_actuators(commands)
+
+        # Poll actuator state to verify movement
+        tolerance = 0.1             # deg  
+        velocity_threshold = 1.0    # deg/s
+        poll_interval = 0.1         # seconds
+        settle_time = 0.3           # seconds to wait after reaching target
+        start_time = time.time()
+        settle_start = None
+        id_to_state = {}
+        timed_out = False
+
+        while time.time() - start_time < wait:
+            resp = await kos.actuator.get_actuators_state()
+            id_to_state = {s.actuator_id: s for s in resp.states}
+            
+            all_settled = True
+            for aid in actuator_ids:
+                state = id_to_state.get(aid)
+                if state is None or getattr(state, "position", None) is None:
+                    all_settled = False
+                    continue
+                    
+                position_error = abs(getattr(state, "position") - target_pos)
+                velocity = abs(getattr(state, "velocity", 0.0) or 0.0)
+                if position_error > tolerance or velocity > velocity_threshold:
+                    all_settled = False
+                    
+            if all_settled:
+                if settle_start is None:
+                    settle_start = time.time()
+                elif time.time() - settle_start >= settle_time:
+                    break
+            else:
+                settle_start = None
+                
+            await asyncio.sleep(poll_interval)
+        else:
+            timed_out = True
+
+        actuator_states = []
+        for aid in actuator_ids:
+            state = id_to_state.get(aid)
+            if state is None or getattr(state, "position", None) is None:
+                actuator_states.append({
+                    "actuator_id": aid,
+                    "target": target_pos,
+                    "actual": None,
+                    "error": "state/position not found"
+                })
+                continue
+            actual = getattr(state, "position")
+            diff = abs(actual - target_pos)
+            actuator_states.append({
+                "actuator_id": aid,
+                "target": target_pos,
+                "actual": round(actual, 2),
+                "difference": round(diff, 2)
+            })
+
+        return {
+            "success": True,
+            "timed_out": timed_out,
+            "wait_time": wait,
+            "actuator_states": actuator_states
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to move actuators: {str(e)}",
+            "actuator_states": []
+        }

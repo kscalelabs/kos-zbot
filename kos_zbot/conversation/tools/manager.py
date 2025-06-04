@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from typing import Any, Dict, List
 from pyee.asyncio import AsyncIOEventEmitter
 from kos_zbot.conversation.tools.animation import AnimationController
-from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config, get_robot_status
+from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config, get_robot_status, move_actuators
 
 
 class ToolManager(AsyncIOEventEmitter):
@@ -70,6 +70,28 @@ class ToolManager(AsyncIOEventEmitter):
             self._handle_get_status
         )
 
+        self.register_tool(
+            "move_actuators",
+            "Move one or more actuators to a specific position in degrees. Use this when the user wants to move actuators, set actuator positions, or control robot joints. The position must be between 0 and 360 degrees. You can move individual actuators by ID, multiple actuators by specifying their IDs, or all actuators at once.",
+            {
+                "type": "object",
+                "properties": {
+                    "actuator_ids": {
+                        "type": "string",
+                        "description": "Actuator IDs to move. Can be 'all' for all actuators, or comma-separated list like '32,35,37' for specific actuators"
+                    },
+                    "position": {
+                        "type": "number",
+                        "description": "Target position in degrees (0-360)",
+                        "minimum": 0,
+                        "maximum": 360
+                    },
+                },
+                "required": ["actuator_ids", "position"]
+            },
+            self._handle_move_actuators
+        )
+
     def set_connection(self, connection):
         self.connection = connection
 
@@ -102,7 +124,7 @@ class ToolManager(AsyncIOEventEmitter):
         handler = tool_info["handler"]
         await handler(event)
         return True
-    
+
     async def _create_tool_response(self, call_id, output):
         if not self.connection:
             print("No connection available for tool response")
@@ -115,7 +137,7 @@ class ToolManager(AsyncIOEventEmitter):
                 "output": output,
             }
         )
-        
+
     async def _handle_set_volume(self, event):
         try:
             args = json.loads(event.arguments)
@@ -168,7 +190,7 @@ class ToolManager(AsyncIOEventEmitter):
     async def _handle_wave_hand(self, event):
         try:
             await self._create_tool_response(event.call_id, "Waving hello!")
-            
+
             wave_config = get_wave_hand_config()
             self.motion_controller.play("wave", wave_config["actuator_ids"], **wave_config["config"])
         except Exception as e:
@@ -178,7 +200,7 @@ class ToolManager(AsyncIOEventEmitter):
     async def _handle_salute(self, event):
         try:
             await self._create_tool_response(event.call_id, "At attention!")
-            
+
             salute_config = get_salute_config()
             self.motion_controller.play("salute", salute_config["actuator_ids"], **salute_config["config"])
         except Exception as e:
@@ -188,9 +210,55 @@ class ToolManager(AsyncIOEventEmitter):
     async def _handle_get_status(self, event):
         try:
             await self._create_tool_response(event.call_id, "Let me check my current status...")
-            
+
             status_info = await get_robot_status()
             await self._create_tool_response(event.call_id, status_info)
         except Exception as e:
             print(f"Status check error: {e}")
             await self._create_tool_response(event.call_id, "I'm having some difficulty checking my status right now, but I seem to be functioning normally for our conversation.")
+
+    async def _handle_move_actuators(self, event):
+        try:
+            args = json.loads(event.arguments)
+            actuator_ids = args["actuator_ids"]
+            position = float(args["position"])
+
+            if actuator_ids.lower() == 'all':
+                await self._create_tool_response(event.call_id, f"Moving all actuators to {position} degrees...")
+            else:
+                await self._create_tool_response(event.call_id, f"Moving actuator(s) {actuator_ids} to {position} degrees...")
+
+            result = await move_actuators(
+                ids=actuator_ids,
+                target_position=position,
+            )
+
+            print(result)
+
+            if result["success"]:
+                feedback_parts = []
+                if result.get("timed_out"):
+                    feedback_parts.append(f"Movement completed but timed out after {result['wait_time']}s. Do not point out the differences between the target and actual positions if they are less than 3 degrees.")
+                else:
+                    feedback_parts.append("Movement completed successfully! Do not point out the differences between the target and actual positions if they are less than 3 degrees.")
+
+                if result["actuator_states"]:
+                    feedback_parts.append("\nActuator positions:")
+                    for state in result["actuator_states"]:
+                        if state.get("error"):
+                            feedback_parts.append(f"- Actuator {state['actuator_id']}: {state['error']}")
+                        else:
+                            actual = state["actual"]
+                            diff = state["difference"]
+                            feedback_parts.append(f"- Actuator {state['actuator_id']}: {actual}° (diff: {diff}°)")
+
+                await self._create_tool_response(event.call_id, "\n".join(feedback_parts))
+            else:
+                await self._create_tool_response(
+                    event.call_id,
+                    f"Sorry, I couldn't move the actuators: {result['error']}",
+                )
+
+        except Exception as e:
+            print(f"Move actuators error: {e}")
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't move the actuators: {str(e)}")

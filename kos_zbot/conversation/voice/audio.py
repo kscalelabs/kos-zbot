@@ -64,12 +64,12 @@ class AudioPlayer(AsyncIOEventEmitter):
         - playback_stopped: When playback stops
     """
 
-    def __init__(self, device_id=None, volume=0.15):
+    def __init__(self, device_id=None, volume=0.75):
         """Initialize the audio player.
 
         Args:
             device_id (int, optional): ID of the output device to use. Defaults to None (system default).
-            volume (float, optional): Initial volume level (0.0 to 1.0). Defaults to 0.15.
+            volume (float, optional): Initial volume level (0.0 to 1.0). Defaults to 0.75.
         """
         super().__init__()
 
@@ -293,6 +293,10 @@ class AudioPlayer(AsyncIOEventEmitter):
         """
         with self.lock:
             return len(self.queue) == 0
+        
+    
+    def set_volume(self, volume: float):
+        self.volume = max(0.0, min(1.0, volume))
 
     async def wait_for_queue_empty(self):
         """Wait until the audio queue is empty.

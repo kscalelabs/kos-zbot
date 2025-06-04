@@ -46,15 +46,15 @@ class AudioProcessor(AsyncIOEventEmitter):
     def __init__(
         self,
         openai_api_key,
-        robot=None,
+        tool_manager=None,
     ):
 
         super().__init__()
-        self.robot = robot
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.connection = None
         self.session = None
         self.connected = asyncio.Event()
+        self.tool_manager = tool_manager
 
         self.combined_audio_buffer = []
         self.conversation_start_time = None
@@ -62,7 +62,7 @@ class AudioProcessor(AsyncIOEventEmitter):
         self.debug_audio_dir = "debug_audio"
         os.makedirs(self.debug_audio_dir, exist_ok=True)
 
-        self.tool_manager = ToolManager(robot=robot, openai_api_key=openai_api_key)
+        
 
     async def connect(self):
         async with self.client.beta.realtime.connect(

@@ -1,10 +1,11 @@
 import os
 import dotenv
 import asyncio
-from .config import load_config, get_microphone_id, get_speaker_id
+from .voice.tools import ToolManager
 from .voice.audio import AudioPlayer
 from .voice.recorder import AudioRecorder
 from .voice.processor import AudioProcessor
+from .config import load_config, get_microphone_id, get_speaker_id
 
 
 class Voice:
@@ -17,12 +18,13 @@ class Voice:
 
         microphone_id = get_microphone_id(self.config)
         speaker_id = get_speaker_id(self.config)
-        self.volume = self.config.get("volume", 0.35)
+        self.volume = self.config.get("volume", 0.75)
 
+        self.tool_manager = ToolManager(openai_api_key=openai_api_key)
         self.recorder = AudioRecorder(microphone_id=microphone_id)
         self.processor = AudioProcessor(
             openai_api_key=openai_api_key,
-            robot=self,
+            tool_manager=self.tool_manager,
         )
         self.player = AudioPlayer(device_id=speaker_id, volume=self.volume)
 
@@ -43,6 +45,9 @@ class Voice:
 
         # Player -> Voice
         self.player.on("queue_empty", self._handle_queue_empty)
+
+        # Tools -> Player
+        self.tool_manager.on("set_volume", lambda volume: self.player.set_volume(volume))
 
     async def _handle_audio_captured(self, data):
         await self.processor.process_audio(data["audio_bytes"])

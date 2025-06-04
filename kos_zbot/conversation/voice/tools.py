@@ -1,20 +1,19 @@
 import os
-import json
 import time
+import json
 import base64
-import asyncio
 import tempfile
 import subprocess
 from openai import AsyncOpenAI
 from typing import Any, Dict, List
-
+from pyee.asyncio import AsyncIOEventEmitter
 from kos_zbot.conversation.animation import AnimationController
 
-class ToolManager:
 
-    def __init__(self, robot=None, openai_api_key=None):
+class ToolManager(AsyncIOEventEmitter):
+
+    def __init__(self, openai_api_key=None):
         super().__init__()
-        self.robot = robot
         self.connection = None
         self.tools = {} 
         self.motion_controller = AnimationController()
@@ -23,7 +22,25 @@ class ToolManager:
             api_key=openai_api_key,
             base_url="https://api.openai.com/v1"
         )
-        
+
+        self.register_tool(
+            "set_volume",
+            "Set the volume of the robot's voice. The volume is a float between 0.0 and 1.0. Convert the volume to a float between 0.0 and 1.0 if provided as a percentage.",
+            {
+                "type": "object",
+                "properties": {
+                    "volume": {
+                        "type": "number",
+                        "description": "Volume level between 0.0 (silent) and 1.0 (maximum)",
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                    }
+                },
+                "required": ["volume"],
+            },
+            self._handle_set_volume,
+        )
+
         self.register_tool(
             "get_current_time",
             "Get the current time of the day.",
@@ -75,7 +92,7 @@ class ToolManager:
         if not tool_info:
             print(f"Unknown tool: {event.name}")
             return False
-        
+
         print(f"Tool call: {event.name}")
 
         handler = tool_info["handler"]
@@ -104,13 +121,23 @@ class ToolManager:
                 os.remove(tmp.name)
             return data
 
+    async def _handle_set_volume(self, event):
+        try:
+            args = json.loads(event.arguments)
+            volume = float(args["volume"])
+            self.emit("set_volume", volume)
+            await self._create_tool_response(event.call_id, f"Volume set to {volume}")
+        except Exception as e:
+            print(e)
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't set the volume: {str(e)}")
+
     async def _handle_describe_surroundings(self, event):
         try:
             await self._create_tool_response(event.call_id, "Let me look...")
-            
+
             jpeg_bytes = self.capture_jpeg_cli()
             base64_image = base64.b64encode(jpeg_bytes).decode('utf-8')
-            
+
             response = await self.openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
@@ -130,18 +157,18 @@ class ToolManager:
                 max_tokens=100,
                 temperature=0.7
             )
-            
+
             description = response.choices[0].message.content.strip()
             await self._create_tool_response(event.call_id, f"I see {description}")
-            
+
         except Exception as e:
+            print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I had trouble processing the image: {str(e)}")
 
     async def _handle_get_current_time(self, event):
         current_time = time.strftime("%I:%M %p")
         message = f"The current time is {current_time}."
         await self._create_tool_response(event.call_id, message)
-
 
     async def _create_tool_response(self, call_id, output):
         if not self.connection:
@@ -159,7 +186,7 @@ class ToolManager:
     async def _handle_wave_hand(self, event):
         try:
             HAND_ACTUATOR_IDS = [11, 12, 13]
-            
+
             HAND_WAVE_CONFIG = {
                 "kos_ip": "127.0.0.1",
                 "amplitude": 15.0,
@@ -204,12 +231,12 @@ class ToolManager:
                 "acceleration": 500.0,
                 "torque_enabled": True,
             }
-            
+
             await self._create_tool_response(event.call_id, "Waving hello!")
             self.motion_controller.wave(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG)
-            #asyncio.create_task(run_sine_test(HAND_ACTUATOR_IDS, **HAND_WAVE_CONFIG))
-            
+
         except Exception as e:
+            print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
 
     async def _handle_salute(self, event):
@@ -222,12 +249,7 @@ class ToolManager:
             }
 
             await self._create_tool_response(event.call_id, "At attention!")
-            #asyncio.create_task(salute_func(HAND_ACTUATOR_IDS, **SALUTE_CONFIG))
             self.motion_controller.salute(HAND_ACTUATOR_IDS, **SALUTE_CONFIG)
         except Exception as e:
+            print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
-
-
-            
-         
-

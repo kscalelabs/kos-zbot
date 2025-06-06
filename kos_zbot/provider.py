@@ -160,7 +160,7 @@ class ModelProvider(ModelProviderABC):
         gravity = np.array([0, 0, -9.81], dtype=np.float32)  # Standard gravity vector
         quat = self.get_quaternion()
         proj_gravity = rotate_vector_by_quat(gravity, quat, inverse=True)
-        proj_gravity = np.array([0, 0, -9.81], dtype=np.float32)
+        #proj_gravity = np.array([0, 0, -9.80], dtype=np.float32)
         self.arrays["projected_gravity"] = proj_gravity
         return proj_gravity
 

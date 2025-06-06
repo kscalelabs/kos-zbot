@@ -16,7 +16,7 @@ class NoActuatorsFoundError(Exception):
     pass
 
 
-class SCSMotorController:
+class ActuatorController:
     def __init__(
         self, device="/dev/ttyAMA5", baudrate=500000, rate=50, actuator_ids=None, robot_metadata=None
     ):

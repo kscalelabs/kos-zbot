@@ -18,128 +18,6 @@ class NoActuatorsFoundError(Exception):
     pass
 
 
-ADDR_KP = 21  # Speed loop P gain
-ADDR_KD = 22  # Speed loop D gain
-
-
-servoRegs = [
-    {"name": "Model", "addr": SMS_STS_MODEL_L, "size": 2, "type": "uint16"},
-    {"name": "ID", "addr": SMS_STS_ID, "size": 1, "type": "uint8"},
-    {"name": "Baudrate", "addr": SMS_STS_BAUD_RATE, "size": 1, "type": "uint8"},
-    {"name": "Return Delay", "addr": 7, "size": 1, "type": "uint8"},
-    {"name": "Response Status Level", "addr": 8, "size": 1, "type": "uint8"},
-    {
-        "name": "Min Angle Limit",
-        "addr": SMS_STS_MIN_ANGLE_LIMIT_L,
-        "size": 2,
-        "type": "uint16",
-    },
-    {
-        "name": "Max Angle Limit",
-        "addr": SMS_STS_MAX_ANGLE_LIMIT_L,
-        "size": 2,
-        "type": "uint16",
-    },
-    {"name": "Max Temperature Limit", "addr": 13, "size": 1, "type": "uint8"},
-    {"name": "Max Voltage Limit", "addr": 14, "size": 1, "type": "uint8"},
-    {"name": "Min Voltage Limit", "addr": 15, "size": 1, "type": "uint8"},
-    {"name": "Max Torque Limit", "addr": 16, "size": 2, "type": "uint16"},
-    {"name": "Phase", "addr": 18, "size": 1, "type": "uint8"},
-    {"name": "Unloading Condition", "addr": 19, "size": 1, "type": "uint8"},
-    {"name": "LED Alarm Condition", "addr": 20, "size": 1, "type": "uint8"},
-    {"name": "P Coefficient", "addr": 21, "size": 1, "type": "uint8"},
-    {"name": "D Coefficient", "addr": 22, "size": 1, "type": "uint8"},
-    {"name": "I Coefficient", "addr": 23, "size": 1, "type": "uint8"},
-    {"name": "Minimum Startup Force", "addr": 24, "size": 2, "type": "uint16"},
-    {"name": "CW Dead Zone", "addr": SMS_STS_CW_DEAD, "size": 1, "type": "uint8"},
-    {"name": "CCW Dead Zone", "addr": SMS_STS_CCW_DEAD, "size": 1, "type": "uint8"},
-    {"name": "Protection Current", "addr": 28, "size": 2, "type": "uint16"},
-    {"name": "Angular Resolution", "addr": 30, "size": 1, "type": "uint8"},
-    {"name": "Offset", "addr": SMS_STS_OFS_L, "size": 2, "type": "uint16"},
-    {"name": "Mode", "addr": SMS_STS_MODE, "size": 1, "type": "uint8"},
-    {"name": "Protective Torque", "addr": 34, "size": 1, "type": "uint8"},
-    {"name": "Protection Time", "addr": 35, "size": 1, "type": "uint8"},
-    {"name": "Overload Torque", "addr": 36, "size": 1, "type": "uint8"},
-    {
-        "name": "Speed closed loop P proportional coefficient",
-        "addr": 37,
-        "size": 1,
-        "type": "uint8",
-    },
-    {"name": "Over Current Protection Time", "addr": 38, "size": 1, "type": "uint8"},
-    {
-        "name": "Velocity closed loop I integral coefficient",
-        "addr": 39,
-        "size": 1,
-        "type": "uint8",
-    },
-    {
-        "name": "Torque Enable",
-        "addr": SMS_STS_TORQUE_ENABLE,
-        "size": 1,
-        "type": "uint8",
-    },
-    {"name": "Acceleration", "addr": SMS_STS_ACC, "size": 1, "type": "uint8"},
-    {
-        "name": "Goal Position",
-        "addr": SMS_STS_GOAL_POSITION_L,
-        "size": 2,
-        "type": "uint16",
-    },
-    {"name": "Goal Time", "addr": SMS_STS_GOAL_TIME_L, "size": 2, "type": "uint16"},
-    {"name": "Goal Speed", "addr": SMS_STS_GOAL_SPEED_L, "size": 2, "type": "int16"},
-    {"name": "Lock", "addr": SMS_STS_LOCK, "size": 1, "type": "uint8"},
-    {
-        "name": "Present Position",
-        "addr": SMS_STS_PRESENT_POSITION_L,
-        "size": 2,
-        "type": "uint16",
-    },
-    {
-        "name": "Present Speed",
-        "addr": SMS_STS_PRESENT_SPEED_L,
-        "size": 2,
-        "type": "int16",
-    },
-    {
-        "name": "Present Load",
-        "addr": SMS_STS_PRESENT_LOAD_L,
-        "size": 2,
-        "type": "int16",
-    },
-    {
-        "name": "Present Voltage",
-        "addr": SMS_STS_PRESENT_VOLTAGE,
-        "size": 1,
-        "type": "uint8",
-    },
-    {
-        "name": "Present Temperature",
-        "addr": SMS_STS_PRESENT_TEMPERATURE,
-        "size": 1,
-        "type": "uint8",
-    },
-    {"name": "Status", "addr": 65, "size": 1, "type": "uint8"},
-    {"name": "Moving", "addr": SMS_STS_MOVING, "size": 1, "type": "uint8"},
-    {
-        "name": "Present Current",
-        "addr": SMS_STS_PRESENT_CURRENT_L,
-        "size": 2,
-        "type": "uint16",
-    },
-    {
-        "name": "Default Moving Threshold",
-        "addr": SMS_STS_DEFAULT_MOVING_THRESHOLD,
-        "size": 1,
-        "type": "uint8",
-    },
-    {"name": "Default DTS", "addr": SMS_STS_DEFAULT_DTS_MS, "size": 1, "type": "uint8"},
-    {"name": "Default VK", "addr": SMS_STS_DEFAULT_VK_MS, "size": 1, "type": "uint8"},
-    {"name": "Default VMIN", "addr": SMS_STS_DEFAULT_VMIN, "size": 1, "type": "uint8"},
-    {"name": "Default VMAX", "addr": SMS_STS_DEFAULT_VMAX, "size": 1, "type": "uint8"},
-    {"name": "Default AMAX", "addr": SMS_STS_DEFAULT_AMAX, "size": 1, "type": "uint8"},
-    {"name": "Default KACC", "addr": SMS_STS_DEFAULT_KACC, "size": 1, "type": "uint8"},
-]
 
 
 class SCSMotorController:
@@ -168,7 +46,7 @@ class SCSMotorController:
         self.next_velocity_batch = None
 
         self.port_handler = PortHandler(device)
-        self.packet_handler = sms_sts(self.port_handler)
+        self.packet_handler = packet_handler(self.port_handler, 0)
 
         self.port_handler.setBaudRate(baudrate)
         if not self.port_handler.openPort():
@@ -178,10 +56,7 @@ class SCSMotorController:
         self.group_sync_read = GroupSyncRead(
             self.packet_handler, SMS_STS_PRESENT_POSITION_L, 4
         )
-        self.group_sync_write = GroupSyncWrite(
-            self.packet_handler, SMS_STS_GOAL_POSITION_L, 2
-        )
-
+      
         # State variables
         self.running = False
 
@@ -404,7 +279,7 @@ class SCSMotorController:
                     if not (0 <= kp <= 255):
                         self.log.error(f"kp out of range: {kp}")
                         return False
-                    success &= self.writeReg_Verify(actuator_id, ADDR_KP, kp)
+                    success &= self.writeReg_Verify(actuator_id, SMS_STS_KP, kp)
                     changes.append(f"kp={kp}")
 
                 # KD
@@ -413,7 +288,7 @@ class SCSMotorController:
                     if not (0 <= kd <= 255):
                         self.log.error(f"kd out of range: {kd}")
                         return False
-                    success &= self.writeReg_Verify(actuator_id, ADDR_KD, kd)
+                    success &= self.writeReg_Verify(actuator_id, SMS_STS_KD, kd)
                     changes.append(f"kd={kd}")
 
                 # Acceleration
@@ -600,7 +475,7 @@ class SCSMotorController:
         try:
             # Read KP
             kp_result, kp_error, kp = self.packet_handler.read1ByteTxRx(
-                actuator_id, ADDR_KP
+                actuator_id, SMS_STS_KP
             )
             if kp_result != 0:
                 self.log.error(f"failed to read kp from actuator {actuator_id}")
@@ -608,7 +483,7 @@ class SCSMotorController:
 
             # Read KD
             kd_result, kd_error, kd = self.packet_handler.read1ByteTxRx(
-                actuator_id, ADDR_KD
+                actuator_id, SMS_STS_KD
             )
             if kd_result != 0:
                 self.log.error(f"failed to read kd from actuator {actuator_id}")

@@ -87,6 +87,14 @@ async def run_sine_test(
     if not valid_actuator_ids:
         log.error("No valid actuators to test. Exiting.")
         return
+    for a_id in available_ids:
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = 15,
+                kd = 5,
+                acceleration = 0,
+                torque_enabled = True
+        )
 
 
     t = np.arange(0, duration, 1 / sample_rate)

@@ -73,6 +73,18 @@ async def salute(
     # Save the original signal handler
     original_handler = signal.signal(signal.SIGINT, handle_sigint)
 
+    # Configure all actuators at start
+    s_3250s = [11, 12, 13, 14, 21, 22, 23, 24]
+
+    for a_id in available_ids:
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = 16 if a_id in s_3250s else 22,
+                kd = 3 if a_id in s_3250s else 12,
+                acceleration = 1000,
+                torque_enabled = True
+        )
+
     # Assume position
     log.info("zeroing actuators")
 

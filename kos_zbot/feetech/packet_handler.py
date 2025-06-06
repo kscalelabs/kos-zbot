@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-from .scservo_def import *
 from kos_zbot.utils.logging import get_logger
+from .servo_defs import *
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Protocol‑level constants (SCServo / Dynamixel v1)
@@ -28,9 +28,8 @@ RXPACKET_MAX_LEN = 250
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class protocol_packet_handler(object):
+class packet_handler(object):
     def __init__(self, portHandler, protocol_end):
-        #self.scs_setend(protocol_end)# SCServo bit end(STS/SMS=0, SCS=1)
         self.portHandler = portHandler
         self.scs_end = protocol_end
         self.CHAR_TIME_US = 10.0 * 1_000_000 / self.portHandler.baudrate  # 10 bits/char (example: 500000 baud --> 20us per byte)

@@ -13,7 +13,7 @@ from kos_protos import (
     policy_pb2,
     policy_pb2_grpc,
 )
-from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
+from kos_zbot.actuator import ActuatorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 from kos_zbot.policy import PolicyManager
 from kos_zbot.utils.metadata import RobotMetadata
@@ -420,7 +420,7 @@ async def serve(host: str = "0.0.0.0", port: int = 50051):
 
     # Initialize hardware
     try:
-        actuator_controller = SCSMotorController(
+        actuator_controller = ActuatorController(
             device="/dev/ttyAMA5", baudrate=1000000, rate=50,robot_metadata=metadata
         )
         actuator_controller.start()

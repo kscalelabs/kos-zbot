@@ -5,10 +5,10 @@ import serial
 import sys
 import platform
 
-#TODO: clean this up
 DEFAULT_BAUDRATE = 1000000
+
 # Assume 50Hz
-LATENCY_TIMER_US = 40      # 40 µs  → 0.04 ms
+BONUS_TIME_US    = 40      # 40 µs  → 0.04 ms  #TODO: check this
 MAX_BUSY_US      = 8_000   # 8 us   hard cap
 MIN_TIMEOUT_US   = 1_000   # 1 us   floor
 
@@ -75,9 +75,9 @@ class PortHandler(object):
         """
         self.packet_start_time = self.getCurrentTime_us()
 
-        bit_time_us  = 1_000_000.0 / self.baudrate     # e.g. 2.0 µs @ 500 kBd
-        calc_timeout = expected_bytes * 10.0 * bit_time_us   # 10 bits/byte
-        calc_timeout += LATENCY_TIMER_US                       # USB latency
+        bit_time_us  = 1_000_000.0 / self.baudrate              # e.g. 2.0 µs @ 500 kBd
+        calc_timeout = expected_bytes * 10.0 * bit_time_us      # 10 bits/byte
+        calc_timeout += BONUS_TIME_US                        # bonus time
         # clamp into sane range
         if calc_timeout < MIN_TIMEOUT_US:
             calc_timeout = MIN_TIMEOUT_US

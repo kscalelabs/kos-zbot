@@ -2,7 +2,7 @@ from typing import Sequence, cast
 import numpy as np
 from kinfer.rust_bindings import ModelProviderABC, PyModelMetadata
 from abc import ABC, abstractmethod
-from kos_zbot.actuator import SCSMotorController
+from kos_zbot.actuator import ActuatorController
 from kos_zbot.imu import BNO055Manager
 from kos_zbot.utils.logging import get_logger
 from kos_zbot.utils.quat import rotate_vector_by_quat
@@ -74,7 +74,7 @@ class ModelProvider(ModelProviderABC):
         return self
 
     def __init__(
-        self, actuator_controller: SCSMotorController, imu_manager: BNO055Manager
+        self, actuator_controller: ActuatorController, imu_manager: BNO055Manager
     ):
         self.actuator_controller = actuator_controller
         self.imu_manager = imu_manager

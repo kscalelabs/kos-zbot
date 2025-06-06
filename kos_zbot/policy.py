@@ -4,7 +4,7 @@ import sys
 from kos_zbot.provider import ModelProvider
 from kinfer.rust_bindings import PyModelRunner
 from kos_zbot.utils.logging import get_logger
-from kos_zbot.actuator import SCSMotorController
+from kos_zbot.actuator import ActuatorController
 from kos_zbot.imu import BNO055Manager
 #from kos_zbot.utils.latency import get_tracker
 import threading
@@ -13,7 +13,7 @@ import time
 
 class PolicyManager:
     def __init__(
-        self, actuator_controller: SCSMotorController, imu_manager: BNO055Manager
+        self, actuator_controller: ActuatorController, imu_manager: BNO055Manager
     ):
         self.log = get_logger(__name__)
         self.running = False

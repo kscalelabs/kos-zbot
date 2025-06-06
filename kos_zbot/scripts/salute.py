@@ -73,6 +73,18 @@ async def salute(
     # Save the original signal handler
     original_handler = signal.signal(signal.SIGINT, handle_sigint)
 
+    # Configure all actuators at start
+    s_3250s = [11, 12, 13, 14, 21, 22, 23, 24]
+
+    for a_id in available_ids:
+        await kos.actuator.configure_actuator(
+                actuator_id = a_id,
+                kp = 16 if a_id in s_3250s else 22,
+                kd = 3 if a_id in s_3250s else 12,
+                acceleration = 1000,
+                torque_enabled = True
+        )
+
     # Assume position
     log.info("zeroing actuators")
 
@@ -89,23 +101,6 @@ async def salute(
         {"actuator_id": 22, "position": -20},
         {"actuator_id": 23, "position": -60}
     ])
-
-    s_3250s = [11, 12, 13, 14, 21, 22, 23, 24]
-
-    for a_id in available_ids:
-        await kos.actuator.configure_actuator(
-                actuator_id = a_id,
-                kp = 16 if a_id in s_3250s else 22,
-                kd = 3 if a_id in s_3250s else 12,
-                acceleration = 1000,
-                torque_enabled = True
-        )
-
-    await asyncio.sleep(2)
-
-    commands = [{"actuator_id": state.actuator_id, "position": state.position} for state in state_resp.states]
-    await kos.actuator.command_actuators(commands)
-    await asyncio.sleep(2)
 
    # Hand squeezing   
     t = np.arange(0, squeeze_duration, 1 / squeeze_sample_rate)

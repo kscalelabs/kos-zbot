@@ -1,18 +1,15 @@
 import threading
-import time
-from kos_zbot.feetech import *
-from kos_zbot.feetech.servo import ServoInterface
-from typing import Dict, Optional
 import os
+import gc
 import sched
 import platform
-from tabulate import tabulate  # Add this import at the top of the file
+import time
+from typing import Dict, Optional
+
+from kos_zbot.feetech import *
+from kos_zbot.feetech.servo import ServoInterface
 from kos_zbot.utils.logging import get_logger
 from kos_zbot.utils.metadata import RobotMetadata
-
-# from kos_zbot.utils.latency import get_tracker
-from tqdm import tqdm
-import gc
 
 
 class NoActuatorsFoundError(Exception):
@@ -86,7 +83,7 @@ class SCSMotorController:
         # self.latency_tracker = get_tracker("actuator_loop")
         time.sleep(1)
 
-        available_actuators = self.scan_servos(range(0, 254))
+        available_actuators = self.servo.scan_servos(range(0, 254))
         self.log.info(f"{len(available_actuators)} actuators found")
 
         if not available_actuators:
@@ -158,6 +155,26 @@ class SCSMotorController:
 
         # Initialize thread
         self.thread = threading.Thread(target=self._update_loop, daemon=True)
+
+    def zero_position(self, actuator_id: int):
+        with self._control_lock:
+            self.servo.set_zero_position(actuator_id)
+
+    def change_id(self, actuator_id: int, new_id: int):
+        with self._control_lock:
+            return self.servo.change_id(actuator_id, new_id)
+
+    def change_baudrate(self, actuator_id: int, new_baudrate: int):
+        with self._control_lock:
+            return self.servo.change_baudrate(actuator_id, new_baudrate)
+
+    def compare_actuator_params(self, actuator_ids=None, params_to_compare=None):
+        with self._control_lock:
+            return self.servo.compare_actuator_params(actuator_ids, params_to_compare)
+
+    def read_all_servo_params(self, actuator_id: int):
+        with self._control_lock:
+            return self.servo.read_all_servo_params(actuator_id)
 
     def _apply_default_gains(self, actuator_id: int = None) -> bool:
         """Apply default/metadata gains to specific actuator or all actuators"""
@@ -296,7 +313,7 @@ class SCSMotorController:
                     # Convert if needed
                     if acceleration != 0:
                         acceleration = (
-                            self._degrees_to_counts(acceleration, offset=0.0) / 100.0
+                            self.servo.degrees_to_counts(acceleration, offset=0.0) / 100.0
                         )
                     acceleration = int(acceleration)
                     if not (0 <= acceleration <= 255):
@@ -328,7 +345,7 @@ class SCSMotorController:
 
                 # Zero position
                 if config.get("zero_position", False):
-                    self.set_zero_position(actuator_id)
+                    self.servo.set_zero_position(actuator_id)
                     changes.append("zeroed")
 
             if success:
@@ -462,74 +479,7 @@ class SCSMotorController:
                 elif over_us > 500:
                     self.log.debug(f"minor jitter {over_us/1000:.2f} ms")
 
-    def _get_params(self, actuator_id: int) -> dict:
-        """Read current KP, KD, and acceleration parameters from a servo
-
-        Args:
-            actuator_id: ID of the servo to read from
-
-        Returns:
-            Dictionary containing the current parameters, or None if read fails
-        """
-        try:
-            # Read KP
-            kp_result, kp_error, kp = self.servo.read1ByteTxRx(
-                actuator_id, SMS_STS_KP
-            )
-            if kp_result != 0:
-                self.log.error(f"failed to read kp from actuator {actuator_id}")
-                return None
-
-            # Read KD
-            kd_result, kd_error, kd = self.servo.read1ByteTxRx(
-                actuator_id, SMS_STS_KD
-            )
-            if kd_result != 0:
-                self.log.error(f"failed to read kd from actuator {actuator_id}")
-                return None
-
-            # Read Acceleration
-            acc_result, acc_error, acc = self.servo.read1ByteTxRx(
-                actuator_id, SMS_STS_ACC
-            )
-            if acc_result != 0:
-                self.log.error(f"failed to read acc from actuator {actuator_id}")
-                return None
-
-            # Read torque enable state
-            torque_result, torque_error, torque = self.servo.read1ByteTxRx(
-                actuator_id, SMS_STS_TORQUE_ENABLE
-            )
-            if torque_result != 0:
-                self.log.error(
-                    f"failed to read torque enable from actuator {actuator_id}"
-                )
-                return None
-
-            params = {
-                "kp": kp,
-                "kd": kd,
-                "acceleration": acc * 100,  # Convert back to percentage
-                "torque_enabled": bool(torque),
-            }
-            self.log.info(
-                f"actuator {actuator_id} parameters: kp: {params['kp']}, kd: {params['kd']}, acceleration: {params['acceleration']}%, torque enabled: {params['torque_enabled']}"
-            )
-
-            return params
-
-        except Exception as e:
-            self.log.error(
-                f"error reading parameters from actuator {actuator_id}: {str(e)}"
-            )
-            return None
-
-    def get_all_params(self):
-        """Read and display parameters for all configured actuators"""
-        self.log.info("reading parameters for all actuators")
-        for actuator_id in sorted(self.actuator_ids):
-            self._get_params(actuator_id)
-
+ 
     def _read_states(self, ignore_errors: bool = False):
         """Read current positions and velocities from all servos"""
         current_time = time.monotonic()
@@ -664,13 +614,6 @@ class SCSMotorController:
             buf_idx,  # param_length
         )
 
-    def _counts_to_degrees(self, counts: float, offset: float = 180.0) -> float:
-        """Convert raw counts to degrees with optional offset"""
-        return (counts * 360 / 4096) - offset
-
-    def _degrees_to_counts(self, degrees: float, offset: float = 180.0) -> int:
-        """Convert degrees to raw counts with optional offset"""
-        return int((degrees + offset) * (4096 / 360))
 
     def set_targets(self, target_dict: Dict[int, Dict[str, float]]):
         """Set target positions and velocities for multiple actuators atomically.
@@ -700,8 +643,8 @@ class SCSMotorController:
                         position = limits['max_angle_deg']
                         self.log.warn(f"Clipped position for actuator {actuator_id} ({limits['joint_name']}) from {original_position:.2f}° to {position:.2f}° (max limit)")
 
-                self.next_position_batch[actuator_id] = self._degrees_to_counts(position, offset=180.0)
-                self.next_velocity_batch[actuator_id] = self._degrees_to_counts(targets["velocity"], offset=0.0)
+                self.next_position_batch[actuator_id] = self.servo.degrees_to_counts(position, offset=180.0)
+                self.next_velocity_batch[actuator_id] = self.servo.degrees_to_counts(targets["velocity"], offset=0.0)
                 self.commanded_ids.add(actuator_id)
 
     def get_position(self, actuator_id: int) -> Optional[float]:
@@ -710,7 +653,7 @@ class SCSMotorController:
             positions = self._active_positions
         value = positions.get(actuator_id)
         return (
-            self._counts_to_degrees(value, offset=180.0) if value is not None else None
+            self.servo.counts_to_degrees(value, offset=180.0) if value is not None else None
         )
 
     def get_velocity(self, actuator_id: int) -> Optional[float]:
@@ -718,7 +661,7 @@ class SCSMotorController:
         with self._positions_lock:
             velocities = self._active_velocities
         value = velocities.get(actuator_id)
-        return self._counts_to_degrees(value, offset=0.0) if value is not None else None
+        return self.servo.counts_to_degrees(value, offset=0.0) if value is not None else None
 
     def get_state(self, actuator_id: int) -> Optional[dict]:
         """Get current position and velocity of a specific actuator"""
@@ -730,288 +673,9 @@ class SCSMotorController:
         if pos is None or vel is None:
             return None
         return {
-            "position": self._counts_to_degrees(pos, offset=180.0),
-            "velocity": self._counts_to_degrees(vel, offset=0.0),
+            "position": self.servo.counts_to_degrees(pos, offset=180.0),
+            "velocity": self.servo.counts_to_degrees(vel, offset=0.0),
         }
 
     def get_torque_enabled(self, actuator_id: int) -> bool:
         return actuator_id in self.torque_enabled_ids
-
-
-
-    def writeReg(self, actuator_id, regAddr, value):
-        """Write to a register with retries. Returns True if successful, False otherwise."""
-        reg = None
-        for r in servoRegs:
-            if r["addr"] == regAddr:
-                reg = r
-                break
-
-        if reg == None:
-            self.log.error("unknown register: " + str(regAddr))
-            return False
-
-        if reg["size"] == 2:
-            value = [
-                self.servo.scs_lobyte(value),
-                self.servo.scs_hibyte(value),
-            ]
-        else:
-            value = [value]
-
-        comm_result = self.servo.writeTxOnly(
-            actuator_id, regAddr, reg["size"], value
-        )
-        if comm_result == 0:
-            return True
-
-        self.log.error(
-            f"Write to ID: {actuator_id} Register: {regAddr} - {self.servo.getTxRxResult(comm_result)}"
-        )
-        return False
-
-    def _get_model_name(self, model_number):
-        """Translate model number to human-readable name"""
-        model_map = {777: "STS3215", 2825: "STS3250"}  # 0x0309  # 0x0B09
-        return model_map.get(model_number, f"Unknown Model {model_number}")
-
-    def read_all_servo_params(self, actuator_id: int):
-        """Read and display all relevant parameters for a servo"""
-        try:
-            with self._control_lock:
-                params = {}
-                for reg in servoRegs:
-                    try:
-                        value, comm_result, error = self.servo.readTxRx(
-                            actuator_id, reg["addr"], reg["size"]
-                        )
-
-                        if comm_result == COMM_SUCCESS:
-                            if reg["size"] == 2:
-                                value = self.servo.scs_tohost(
-                                    self.servo.scs_makeword(
-                                        value[0], value[1]
-                                    ),
-                                    15,
-                                )
-                            else:
-                                value = value[0]
-
-                            # Special handling for Model - store the name instead of the number
-                            if reg["name"] == "Model":
-                                value = self._get_model_name(value)
-
-                            params[reg["name"]] = {"value": value, "addr": reg["addr"]}
-                        else:
-                            self.log.error(
-                                f"Read ID: {actuator_id} Register: {reg['addr']} - {self.servo.getTxRxResult(comm_result)}"
-                            )
-
-                    except Exception as e:
-                        self.log.error(
-                            f"error reading {reg['name']} (addr: {reg['addr']}): {str(e)}"
-                        )
-                        continue
-                return params
-
-        except Exception as e:
-            self.log.error(
-                f"error reading parameters from actuator {actuator_id}: {str(e)}"
-            )
-            return None
-
-    def compare_actuator_params(self, actuator_ids=None, params_to_compare=None):
-        """Compare specific parameters across multiple actuators and show differences."""
-        # Use all servoRegs by default, creating display names with register addresses
-        default_params = [reg["name"] for reg in servoRegs]
-
-        params_to_compare = params_to_compare or default_params
-        actuator_ids = sorted(actuator_ids or self.actuator_ids)
-
-        if len(actuator_ids) < 2:
-            print("need at least 2 actuators to compare")
-            return
-
-        # Read all parameters for specified actuators
-        actuator_params = {}
-        for aid in actuator_ids:
-            actuator_params[aid] = self.read_all_servo_params(aid)
-            time.sleep(0.1)
-
-        # Create a mapping of parameter names to their register addresses
-        reg_addresses = {reg["name"]: reg["addr"] for reg in servoRegs}
-
-        # Prepare table data
-        headers = ["Parameter [Reg]"] + [f"ID {aid}" for aid in actuator_ids]
-        table_data = []
-        differences_found = False
-
-        for param in params_to_compare:
-            # Create parameter name with register address
-            param_with_reg = f"{param} [{reg_addresses[param]}]"
-            row = [param_with_reg]
-            base_value = None
-            row_has_diff = False
-
-            # Collect values for this parameter
-            for aid in actuator_ids:
-                if actuator_params[aid] and param in actuator_params[aid]:
-                    value = actuator_params[aid][param]
-                    value_str = str(value)
-
-                    if base_value is None:
-                        base_value = value
-                        base_value_str = value_str
-                    elif value != base_value:
-                        row_has_diff = True
-                    row.append(value_str)
-                else:
-                    row.append("N/A")
-                    row_has_diff = True
-
-            if row_has_diff:
-                differences_found = True
-                row = [row[0]] + [
-                    f"\033[91m{v}\033[0m" if v != base_value_str else v for v in row[1:]
-                ]
-            table_data.append(row)
-
-        print("\n=== Parameter Comparison ===")
-        print(f"Comparing actuators: {actuator_ids}")
-        print(
-            tabulate(
-                table_data,
-                headers=headers,
-                tablefmt="grid",
-                numalign="right",
-                stralign="left",
-            )
-        )
-
-        if not differences_found:
-            print("\nAll compared parameters are identical across actuators.")
-
-        return actuator_params
-
-    def set_zero_position(self, actuator_id: int):
-        self.servo.unlockEEPROM(actuator_id)
-        time.sleep(0.01)
-
-        # Set min angle to 0
-        self.servo.writeReg_Verify(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
-        time.sleep(0.01)
-
-        # Set max angle to 4095
-        self.servo.writeReg_Verify(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
-        time.sleep(0.01)
-
-        # Set position control mode
-        self.servo.writeReg_Verify(actuator_id, SMS_STS_MODE, 0)
-        time.sleep(0.01)
-
-        # Enable torque with special flag
-        self.servo.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
-        time.sleep(0.01)
-
-        self.servo.lockEEPROM(actuator_id)
-
-        # Set the target and buffers to zero
-        self.last_commanded_positions[actuator_id] = self._degrees_to_counts(
-            0, offset=180.0
-        )
-        self.last_commanded_velocities[actuator_id] = 0
-        self._positions_a[actuator_id] = 0
-        self._positions_b[actuator_id] = 0
-
-    def scan_servos(self, id_range: range) -> list:
-        found_servos = []
-        found_strings = []
-        with tqdm(id_range, desc="Scanning servos", unit="ID") as pbar:
-            for servo_id in pbar:
-                model_number, result, error = self.servo.ping(servo_id)
-                if result == 0:
-                    model_name = self._get_model_name(model_number)
-                    found_servos.append({"id": servo_id, "model": model_name})
-                    found_strings.append(f"[{servo_id} {model_name}]")
-        if found_strings:
-            self.log.info("Found servos: " + ", ".join(found_strings))
-        else:
-            self.log.info("No servos found.")
-        return found_servos
-
-    def change_baudrate(self, raw_baud: int) -> bool:
-        """
-        Set bus speed by passing the actual baud rate.
-
-        Args:
-            raw_baud: one of 1_000_000, 500_000, or 250_000
-            verify: if True, read back each servo’s baud‐rate register to confirm
-        Returns:
-            True if all writes (and host port update) succeeded
-        """
-        # map actual baud → register index
-        baud_to_index = {
-            1_000_000: 0,  # index 0 => 1 Mbps
-            500_000: 1,  # index 1 => 500 kbps
-            250_000: 2,  # index 2 => 250 kbps
-        }
-        if raw_baud not in baud_to_index:
-            self.log.error(f"Unsupported baud rate: {raw_baud}")
-            return False
-
-        idx = baud_to_index[raw_baud]
-        self.log.info(f"idx: {idx}")
-        success = True
-
-        with self._control_lock:
-            for aid in sorted(self.actuator_ids):
-                self.log.info(f"Changing baudrate for actuator {aid} to {raw_baud}")
-                # unlock EEPROM
-                self.servo.unlockEEPROM(aid)
-                time.sleep(0.01)
-
-                # write index into the baud‐rate register
-                if not self.writeReg(aid, SMS_STS_BAUD_RATE, idx):
-                    # self.log.error(f"[id:{aid:03d}] failed to write baud index {idx}")
-                    success = False
-
-                time.sleep(0.01)
-                # lock EEPROM again
-                self.servo.lockEEPROM(aid)
-                time.sleep(0.01)
-
-        return success
-
-    def change_id(self, current_id: int, new_id: int) -> bool:
-        """
-        Change the ID of a servo on the bus.
-
-        Args:
-            current_id: Current ID of the servo (0-253)
-            new_id: New ID to set for the servo (0-253)
-        Returns:
-            True if the ID change was successful
-        """
-        if not (0 <= current_id <= 253 and 0 <= new_id <= 253):
-            self.log.error("IDs must be between 0 and 253")
-            return False
-
-        self.log.info(f"Changing servo ID from {current_id} to {new_id}")
-        success = True
-
-        with self._control_lock:
-            # unlock EEPROM
-            self._unlockEEPROM(current_id)
-            time.sleep(0.01)
-
-            # write new ID
-            if not self.servo.writeReg_Verify(current_id, SMS_STS_ID, new_id):
-                self.log.error(f"Failed to write new ID {new_id} to servo {current_id}")
-                success = False
-
-            time.sleep(0.01)
-            # lock EEPROM again
-            self.servo.lockEEPROM
-            time.sleep(0.01)
-
-        return success

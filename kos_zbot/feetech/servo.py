@@ -130,7 +130,7 @@ class ServoInterface(packet_handler):
         return success
 
 
-    def change_baudrate(self, raw_baud: int) -> bool:
+    def change_baudrate(self, raw_baud: int, actuator_ids: list) -> bool:
         """
         Set bus speed by passing the actual baud rate.
 
@@ -155,7 +155,7 @@ class ServoInterface(packet_handler):
         success = True
 
     
-        for aid in sorted(self.actuator_ids):
+        for aid in sorted(actuator_ids):
             self.log.info(f"Changing baudrate for actuator {aid} to {raw_baud}")
             # unlock EEPROM
             self.unlockEEPROM(aid)
@@ -265,75 +265,22 @@ class ServoInterface(packet_handler):
             return None
 
 
-    def compare_actuator_params(self, actuator_ids=None, params_to_compare=None):
-        """Compare specific parameters across multiple actuators and show differences."""
-        # Use all servoRegs by default, creating display names with register addresses
-        default_params = [reg["name"] for reg in servoRegs]
+    # TODO: Make this comprehensive and put into use
+    async def _verify_config(self, actuator_id: int, config: dict):
+        """Verify that configuration was applied correctly."""
+        try:
+            if "acceleration" in config:
+                # Read back acceleration value
+                actual_acc = self.read1ByteTxRx(actuator_id, SMS_STS_ACC)
+                if actual_acc != config["acceleration"]:
+                    self.log.error(
+                        f"acceleration mismatch: expected {config['acceleration']}, got {actual_acc}"
+                    )
+                    return False
 
-        params_to_compare = params_to_compare or default_params
-        actuator_ids = sorted(actuator_ids or self.actuator_ids)
+            # Add other configuration verifications here
+            return True
 
-        if len(actuator_ids) < 2:
-            print("need at least 2 actuators to compare")
-            return
-
-        # Read all parameters for specified actuators
-        actuator_params = {}
-        for aid in actuator_ids:
-            actuator_params[aid] = self.read_all_servo_params(aid)
-            time.sleep(0.1)
-
-        # Create a mapping of parameter names to their register addresses
-        reg_addresses = {reg["name"]: reg["addr"] for reg in servoRegs}
-
-        # Prepare table data
-        headers = ["Parameter [Reg]"] + [f"ID {aid}" for aid in actuator_ids]
-        table_data = []
-        differences_found = False
-
-        for param in params_to_compare:
-            # Create parameter name with register address
-            param_with_reg = f"{param} [{reg_addresses[param]}]"
-            row = [param_with_reg]
-            base_value = None
-            row_has_diff = False
-
-            # Collect values for this parameter
-            for aid in actuator_ids:
-                if actuator_params[aid] and param in actuator_params[aid]:
-                    value = actuator_params[aid][param]
-                    value_str = str(value)
-
-                    if base_value is None:
-                        base_value = value
-                        base_value_str = value_str
-                    elif value != base_value:
-                        row_has_diff = True
-                    row.append(value_str)
-                else:
-                    row.append("N/A")
-                    row_has_diff = True
-
-            if row_has_diff:
-                differences_found = True
-                row = [row[0]] + [
-                    f"\033[91m{v}\033[0m" if v != base_value_str else v for v in row[1:]
-                ]
-            table_data.append(row)
-
-        print("\n=== Parameter Comparison ===")
-        print(f"Comparing actuators: {actuator_ids}")
-        print(
-            tabulate(
-                table_data,
-                headers=headers,
-                tablefmt="grid",
-                numalign="right",
-                stralign="left",
-            )
-        )
-
-        if not differences_found:
-            print("\nAll compared parameters are identical across actuators.")
-
-        return actuator_params
+        except Exception as e:
+            self.log.error(f"verification error: {str(e)}")
+            return False

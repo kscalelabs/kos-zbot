@@ -1,6 +1,7 @@
 import threading
 import time
 from kos_zbot.feetech import *
+from kos_zbot.feetech.servo import ServoInterface
 from typing import Dict, Optional
 import os
 import sched
@@ -16,8 +17,6 @@ import gc
 
 class NoActuatorsFoundError(Exception):
     pass
-
-
 
 
 class SCSMotorController:
@@ -46,7 +45,7 @@ class SCSMotorController:
         self.next_velocity_batch = None
 
         self.port_handler = PortHandler(device)
-        self.packet_handler = packet_handler(self.port_handler, 0)
+        self.servo = ServoInterface(self.port_handler)
 
         self.port_handler.setBaudRate(baudrate)
         if not self.port_handler.openPort():
@@ -54,7 +53,7 @@ class SCSMotorController:
         self.log.info(f"port opened at {self.port_handler.getBaudRate()} baud")
 
         self.group_sync_read = GroupSyncRead(
-            self.packet_handler, SMS_STS_PRESENT_POSITION_L, 4
+            self.servo, SMS_STS_PRESENT_POSITION_L, 4
         )
       
         # State variables
@@ -279,7 +278,7 @@ class SCSMotorController:
                     if not (0 <= kp <= 255):
                         self.log.error(f"kp out of range: {kp}")
                         return False
-                    success &= self.writeReg_Verify(actuator_id, SMS_STS_KP, kp)
+                    success &= self.servo.writeReg_Verify(actuator_id, SMS_STS_KP, kp)
                     changes.append(f"kp={kp}")
 
                 # KD
@@ -288,7 +287,7 @@ class SCSMotorController:
                     if not (0 <= kd <= 255):
                         self.log.error(f"kd out of range: {kd}")
                         return False
-                    success &= self.writeReg_Verify(actuator_id, SMS_STS_KD, kd)
+                    success &= self.servo.writeReg_Verify(actuator_id, SMS_STS_KD, kd)
                     changes.append(f"kd={kd}")
 
                 # Acceleration
@@ -303,7 +302,7 @@ class SCSMotorController:
                     if not (0 <= acceleration <= 255):
                         self.log.error(f"acceleration out of range: {acceleration}")
                         return False
-                    success &= self.writeReg_Verify(
+                    success &= self.servo.writeReg_Verify(
                         actuator_id, SMS_STS_ACC, acceleration
                     )
                     changes.append(f"acc={acceleration}")
@@ -312,7 +311,7 @@ class SCSMotorController:
                 if "torque_enabled" in config:
                     torque_enabled = bool(config["torque_enabled"])
                     was_enabled = actuator_id in self.torque_enabled_ids
-                    success &= self.writeReg_Verify(
+                    success &= self.servo.writeReg_Verify(
                         actuator_id, SMS_STS_TORQUE_ENABLE, 1 if torque_enabled else 0
                     )
                     if torque_enabled:
@@ -353,7 +352,7 @@ class SCSMotorController:
         try:
             if "acceleration" in config:
                 # Read back acceleration value
-                actual_acc = packet_handler.read1ByteTxRx(actuator_id, SMS_STS_ACC)
+                actual_acc = self.servo.read1ByteTxRx(actuator_id, SMS_STS_ACC)
                 if actual_acc != config["acceleration"]:
                     self.log.error(
                         f"acceleration mismatch: expected {config['acceleration']}, got {actual_acc}"
@@ -474,7 +473,7 @@ class SCSMotorController:
         """
         try:
             # Read KP
-            kp_result, kp_error, kp = self.packet_handler.read1ByteTxRx(
+            kp_result, kp_error, kp = self.servo.read1ByteTxRx(
                 actuator_id, SMS_STS_KP
             )
             if kp_result != 0:
@@ -482,7 +481,7 @@ class SCSMotorController:
                 return None
 
             # Read KD
-            kd_result, kd_error, kd = self.packet_handler.read1ByteTxRx(
+            kd_result, kd_error, kd = self.servo.read1ByteTxRx(
                 actuator_id, SMS_STS_KD
             )
             if kd_result != 0:
@@ -490,7 +489,7 @@ class SCSMotorController:
                 return None
 
             # Read Acceleration
-            acc_result, acc_error, acc = self.packet_handler.read1ByteTxRx(
+            acc_result, acc_error, acc = self.servo.read1ByteTxRx(
                 actuator_id, SMS_STS_ACC
             )
             if acc_result != 0:
@@ -498,7 +497,7 @@ class SCSMotorController:
                 return None
 
             # Read torque enable state
-            torque_result, torque_error, torque = self.packet_handler.read1ByteTxRx(
+            torque_result, torque_error, torque = self.servo.read1ByteTxRx(
                 actuator_id, SMS_STS_TORQUE_ENABLE
             )
             if torque_result != 0:
@@ -542,12 +541,12 @@ class SCSMotorController:
         if scs_comm_result != 0:
             if not ignore_errors:
                 self.log.error(
-                    f"GroupSyncRead: {self.packet_handler.getTxRxResult(scs_comm_result)}"
+                    f"GroupSyncRead: {self.servo.getTxRxResult(scs_comm_result)}"
                 )
                 for actuator_id in list(self.actuator_ids):
                     self._record_fault(
                         actuator_id,
-                        f"{self.packet_handler.getTxRxResult(scs_comm_result)}",
+                        f"{self.servo.getTxRxResult(scs_comm_result)}",
                     )
             return
 
@@ -561,8 +560,8 @@ class SCSMotorController:
                     data = self.group_sync_read.getData(
                         actuator_id, SMS_STS_PRESENT_POSITION_L, 4
                     )
-                    position = self.packet_handler.scs_tohost(data & 0xFFFF, 15)
-                    velocity = self.packet_handler.scs_tohost((data >> 16) & 0xFFFF, 15)
+                    position = self.servo.scs_tohost(data & 0xFFFF, 15)
+                    velocity = self.servo.scs_tohost((data >> 16) & 0xFFFF, 15)
                     new_positions[actuator_id] = position
                     new_velocities[actuator_id] = velocity
                 else:
@@ -658,7 +657,7 @@ class SCSMotorController:
 
         # 3) Fire a Sync‑WRITE with *zero* extra allocations -------------------
         #    param_length == number_of_bytes we’re sending (buf_idx)
-        self.packet_handler.syncWriteTxOnly(
+        self.servo.syncWriteTxOnly(
             SMS_STS_GOAL_POSITION_L,  # start address
             6,  # bytes per servo (2 for position, 2 for time, 2 for velocity)
             memoryview(self._tx_buf)[:buf_idx],
@@ -738,50 +737,7 @@ class SCSMotorController:
     def get_torque_enabled(self, actuator_id: int) -> bool:
         return actuator_id in self.torque_enabled_ids
 
-    def _unlockEEPROM(self, actuator_id):
-        self.packet_handler.unLockEprom(actuator_id)
-        self.log.debug("eeprom unlocked")
 
-    def _lockEEPROM(self, actuator_id):
-        self.packet_handler.LockEprom(actuator_id)
-        self.log.debug("eeprom locked")
-
-    def writeReg_Verify(self, actuator_id, regAddr, value):
-        """Write to a register with retries. Returns True if successful, False otherwise."""
-        reg = None
-        for r in servoRegs:
-            if r["addr"] == regAddr:
-                reg = r
-                break
-
-        if reg == None:
-            self.log.error("unknown register: " + str(regAddr))
-            return False  # Return False instead of None
-
-        if reg["size"] == 2:
-            value = [
-                self.packet_handler.scs_lobyte(value),
-                self.packet_handler.scs_hibyte(value),
-            ]
-        else:
-            value = [value]
-
-        retries = 3
-        while retries > 0:
-            comm_result, error = self.packet_handler.writeTxRx(
-                actuator_id, regAddr, reg["size"], value
-            )
-            if comm_result == 0:
-                # print(f"Register {regAddr} written")
-                return True
-            else:
-                self.log.error(
-                    f"Write to ID: {actuator_id} Register: {regAddr} - {self.packet_handler.getTxRxResult(comm_result)} - retrying {retries} times: "
-                )
-                retries -= 1
-
-        # self.log.error(f"failed to write register {regAddr} after all retries")
-        return False  # Return False after all retries fail
 
     def writeReg(self, actuator_id, regAddr, value):
         """Write to a register with retries. Returns True if successful, False otherwise."""
@@ -797,20 +753,20 @@ class SCSMotorController:
 
         if reg["size"] == 2:
             value = [
-                self.packet_handler.scs_lobyte(value),
-                self.packet_handler.scs_hibyte(value),
+                self.servo.scs_lobyte(value),
+                self.servo.scs_hibyte(value),
             ]
         else:
             value = [value]
 
-        comm_result = self.packet_handler.writeTxOnly(
+        comm_result = self.servo.writeTxOnly(
             actuator_id, regAddr, reg["size"], value
         )
         if comm_result == 0:
             return True
 
         self.log.error(
-            f"Write to ID: {actuator_id} Register: {regAddr} - {self.packet_handler.getTxRxResult(comm_result)}"
+            f"Write to ID: {actuator_id} Register: {regAddr} - {self.servo.getTxRxResult(comm_result)}"
         )
         return False
 
@@ -826,14 +782,14 @@ class SCSMotorController:
                 params = {}
                 for reg in servoRegs:
                     try:
-                        value, comm_result, error = self.packet_handler.readTxRx(
+                        value, comm_result, error = self.servo.readTxRx(
                             actuator_id, reg["addr"], reg["size"]
                         )
 
                         if comm_result == COMM_SUCCESS:
                             if reg["size"] == 2:
-                                value = self.packet_handler.scs_tohost(
-                                    self.packet_handler.scs_makeword(
+                                value = self.servo.scs_tohost(
+                                    self.servo.scs_makeword(
                                         value[0], value[1]
                                     ),
                                     15,
@@ -848,7 +804,7 @@ class SCSMotorController:
                             params[reg["name"]] = {"value": value, "addr": reg["addr"]}
                         else:
                             self.log.error(
-                                f"Read ID: {actuator_id} Register: {reg['addr']} - {self.packet_handler.getTxRxResult(comm_result)}"
+                                f"Read ID: {actuator_id} Register: {reg['addr']} - {self.servo.getTxRxResult(comm_result)}"
                             )
 
                     except Exception as e:
@@ -938,26 +894,26 @@ class SCSMotorController:
         return actuator_params
 
     def set_zero_position(self, actuator_id: int):
-        self._unlockEEPROM(actuator_id)
+        self.servo.unlockEEPROM(actuator_id)
         time.sleep(0.01)
 
         # Set min angle to 0
-        self.writeReg_Verify(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
+        self.servo.writeReg_Verify(actuator_id, SMS_STS_MIN_ANGLE_LIMIT_L, 0x0000)
         time.sleep(0.01)
 
         # Set max angle to 4095
-        self.writeReg_Verify(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
+        self.servo.writeReg_Verify(actuator_id, SMS_STS_MAX_ANGLE_LIMIT_L, 0x0FFF)
         time.sleep(0.01)
 
         # Set position control mode
-        self.writeReg_Verify(actuator_id, SMS_STS_MODE, 0)
+        self.servo.writeReg_Verify(actuator_id, SMS_STS_MODE, 0)
         time.sleep(0.01)
 
         # Enable torque with special flag
-        self.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
+        self.servo.writeReg_Verify(actuator_id, SMS_STS_TORQUE_ENABLE, 0x80)
         time.sleep(0.01)
 
-        self._lockEEPROM(actuator_id)
+        self.servo.lockEEPROM(actuator_id)
 
         # Set the target and buffers to zero
         self.last_commanded_positions[actuator_id] = self._degrees_to_counts(
@@ -972,7 +928,7 @@ class SCSMotorController:
         found_strings = []
         with tqdm(id_range, desc="Scanning servos", unit="ID") as pbar:
             for servo_id in pbar:
-                model_number, result, error = self.packet_handler.ping(servo_id)
+                model_number, result, error = self.servo.ping(servo_id)
                 if result == 0:
                     model_name = self._get_model_name(model_number)
                     found_servos.append({"id": servo_id, "model": model_name})
@@ -1011,7 +967,7 @@ class SCSMotorController:
             for aid in sorted(self.actuator_ids):
                 self.log.info(f"Changing baudrate for actuator {aid} to {raw_baud}")
                 # unlock EEPROM
-                self._unlockEEPROM(aid)
+                self.servo.unlockEEPROM(aid)
                 time.sleep(0.01)
 
                 # write index into the baud‐rate register
@@ -1021,7 +977,7 @@ class SCSMotorController:
 
                 time.sleep(0.01)
                 # lock EEPROM again
-                self._lockEEPROM(aid)
+                self.servo.lockEEPROM(aid)
                 time.sleep(0.01)
 
         return success
@@ -1049,13 +1005,13 @@ class SCSMotorController:
             time.sleep(0.01)
 
             # write new ID
-            if not self.writeReg_Verify(current_id, SMS_STS_ID, new_id):
+            if not self.servo.writeReg_Verify(current_id, SMS_STS_ID, new_id):
                 self.log.error(f"Failed to write new ID {new_id} to servo {current_id}")
                 success = False
 
             time.sleep(0.01)
             # lock EEPROM again
-            self._lockEEPROM(current_id)
+            self.servo.lockEEPROM
             time.sleep(0.01)
 
         return success

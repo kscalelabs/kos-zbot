@@ -1,0 +1,10 @@
+[Unit]
+Description=Set IRQ Affinity for IRQ 39
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'echo 2 > /proc/irq/39/smp_affinity'
+
+[Install]
+WantedBy=multi-user.target

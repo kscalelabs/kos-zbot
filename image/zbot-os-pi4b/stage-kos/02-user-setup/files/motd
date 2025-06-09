@@ -1,0 +1,30 @@
+   ***********************************************
+   *                KSCALE KOS                   *
+   ***********************************************
+
+      Welcome to KOS Zbot!
+
+      Quick Start Guide:
+      - Run 'kos <robot> service' to start the KOS service
+      - Run 'kos <robot> inference' to run a policy (no grpc service)
+      - Use 'kos status' to view system status
+      - Control actuators with 'kos actuator' commands:
+        • move - Position control
+        • torque - Enable/disable torque
+        • zero - Set zero position
+        • dump - View parameters
+      - Deploy policies with 'kos policy' commands
+      - Manage policies with 'kos policy' commands:
+        • start - Start a policy deployment
+        • stop - Stop the current policy
+        • status - Show policy state
+      - Run tests with 'kos test' commands:
+        • sync_wave - Run wave motion test
+        • sync_step - Run step motion test
+        • imu - Run IMU test
+      - Run tests with 'kos test'
+
+      For full documentation, use 'kos --help'
+      For command help, use 'kos <command> --help'
+
+   ***********************************************

@@ -1,0 +1,25 @@
+# KOS PI4B Configuration
+
+dtparam=i2c_arm=on
+dtparam=i2c_arm_baudrate=400000
+dtoverlay=i2c6,pins_22_23
+dtparam=audio=on
+camera_auto_detect=1
+dtoverlay=imx219
+display_auto_detect=1
+auto_initramfs=1
+dtoverlay=vc4-kms-v3d
+max_framebuffers=2
+dtoverlay=disable-bt
+dtoverlay=uart5,txd5_pin=12,rxd5_pin=13
+disable_fw_kms_setup=1
+arm_64bit=1
+disable_overscan=1
+arm_boost=1
+dtparam=i2s=on
+
+
+[all]
+dtoverlay=dwc2
+dtoverlay=googlevoicehat-soundcard
+dtoverlay=max98357a

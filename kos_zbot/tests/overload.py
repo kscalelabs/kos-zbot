@@ -24,7 +24,7 @@ def get_logger(name):
 
 async def overload(
     actuator_ids: list[int] = [12,13,14],
-    actuator_pos: list[float] = [30] # degrees
+    actuator_pos: list[float] = [30], # degrees
     kos_ip: str = "127.0.0.1",
     # Duration and Amplitude of test
     duration: float = 3600.0,  # seconds

@@ -312,3 +312,67 @@ async def move_actuators(ids, target_position, velocity=None, kp=None, kd=None, 
             "error": f"Failed to move actuators: {str(e)}",
             "actuator_states": []
         }
+
+async def control_actuator_torque(ids, enable_torque):
+    """
+    Enable or disable torque for specified actuators
+    """
+    kos_ip = "127.0.0.1"
+    if not await kos_ready_async(kos_ip):
+        return {
+            "success": False,
+            "error": f"KOS service not available at {kos_ip}:50051",
+            "actuator_states": []
+        }
+
+    kos = KOS(kos_ip)
+
+    if ids.lower() == 'all':
+        resp = await kos.actuator.get_actuators_state()
+        actuator_ids = [s.actuator_id for s in resp.states]
+    else:
+        try:
+            actuator_ids = [int(i.strip()) for i in ids.split(',')]
+        except ValueError:
+            return {
+                "success": False,
+                "error": "IDs must be comma-separated integers or 'all'",
+                "actuator_states": []
+            }
+
+    try:
+        for aid in actuator_ids:
+            await kos.actuator.configure_actuator(actuator_id=aid, torque_enabled=enable_torque)
+
+        resp = await kos.actuator.get_actuators_state()
+        id_to_state = {s.actuator_id: s for s in resp.states}
+        
+        actuator_states = []
+        for aid in actuator_ids:
+            state = id_to_state.get(aid)
+            if state is None:
+                actuator_states.append({
+                    "actuator_id": aid,
+                    "error": "actuator state not found"
+                })
+                continue
+            
+            actuator_states.append({
+                "actuator_id": aid,
+                "online": getattr(state, "online", False),
+                "position": getattr(state, "position", None),
+                "torque_enabled": enable_torque
+            })
+
+        return {
+            "success": True,
+            "action": "enabled" if enable_torque else "disabled",
+            "actuator_states": actuator_states
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to control actuator torque: {str(e)}",
+            "actuator_states": []
+        }

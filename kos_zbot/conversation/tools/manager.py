@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from typing import Any, Dict, List
 from pyee.asyncio import AsyncIOEventEmitter
 from kos_zbot.conversation.tools.animation import AnimationController
-from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config, get_robot_status, move_actuators
+from kos_zbot.conversation.tools.utils import capture_jpeg_cli, get_wave_hand_config, get_salute_config, get_robot_status, move_actuators, control_actuator_torque
 
 
 class ToolManager(AsyncIOEventEmitter):
@@ -92,6 +92,26 @@ class ToolManager(AsyncIOEventEmitter):
             self._handle_move_actuators
         )
 
+        self.register_tool(
+            "control_actuator_torque",
+            "Enable or disable torque on one or more actuators. Use this when the user wants to enable/disable actuator torque, turn motors on/off, or lock/unlock actuators. You can control individual actuators by ID, multiple actuators by specifying their IDs, or all actuators at once.",
+            {
+                "type": "object",
+                "properties": {
+                    "actuator_ids": {
+                        "type": "string",
+                        "description": "Actuator IDs to control. Can be 'all' for all actuators, or comma-separated list like '32,35,37' for specific actuators"
+                    },
+                    "enable": {
+                        "type": "boolean",
+                        "description": "True to enable torque (lock actuators), False to disable torque (unlock actuators)"
+                    },
+                },
+                "required": ["actuator_ids", "enable"]
+            },
+            self._handle_control_actuator_torque
+        )
+
     def set_connection(self, connection):
         self.connection = connection
 
@@ -112,7 +132,7 @@ class ToolManager(AsyncIOEventEmitter):
     async def handle_tool_call(self, event):
         if not self.connection:
             print("No connection available for tool call")
-            return False
+            return False    
 
         tool_info = self.tools.get(event.name)
         if not tool_info:
@@ -183,26 +203,28 @@ class ToolManager(AsyncIOEventEmitter):
             await self._create_tool_response(event.call_id, f"Sorry, I had trouble processing the image: {str(e)}")
 
     async def _handle_get_current_time(self, event):
-        current_time = time.strftime("%I:%M %p")
-        message = f"The current time is {current_time}."
-        await self._create_tool_response(event.call_id, message)
+        try:
+            current_time = time.strftime("%I:%M %p")
+            message = f"The current time is {current_time}."
+            await self._create_tool_response(event.call_id, message)
+        except Exception as e:
+            print(e)
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't get the current time: {str(e)}")
 
     async def _handle_wave_hand(self, event):
         try:
-            await self._create_tool_response(event.call_id, "Waving hello!")
-
             wave_config = get_wave_hand_config()
             self.motion_controller.play("wave", wave_config["actuator_ids"], **wave_config["config"])
+            await self._create_tool_response(event.call_id, "Waving hello!")
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't wave: {str(e)}")
 
     async def _handle_salute(self, event):
         try:
-            await self._create_tool_response(event.call_id, "At attention!")
-
             salute_config = get_salute_config()
             self.motion_controller.play("salute", salute_config["actuator_ids"], **salute_config["config"])
+            await self._create_tool_response(event.call_id, "At attention!")
         except Exception as e:
             print(e)
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't salute: {str(e)}")
@@ -210,7 +232,6 @@ class ToolManager(AsyncIOEventEmitter):
     async def _handle_get_status(self, event):
         try:
             await self._create_tool_response(event.call_id, "Let me check my current status...")
-
             status_info = await get_robot_status()
             await self._create_tool_response(event.call_id, status_info)
         except Exception as e:
@@ -262,3 +283,49 @@ class ToolManager(AsyncIOEventEmitter):
         except Exception as e:
             print(f"Move actuators error: {e}")
             await self._create_tool_response(event.call_id, f"Sorry, I couldn't move the actuators: {str(e)}")
+
+    async def _handle_control_actuator_torque(self, event):
+        try:
+            args = json.loads(event.arguments)
+            actuator_ids = args["actuator_ids"]
+            enable = args["enable"]
+
+            action_word = "Enabling" if enable else "Disabling"
+            if actuator_ids.lower() == 'all':
+                await self._create_tool_response(event.call_id, f"{action_word} torque on all actuators...")
+            else:
+                await self._create_tool_response(event.call_id, f"{action_word} torque on actuator(s) {actuator_ids}...")
+
+            result = await control_actuator_torque(
+                ids=actuator_ids,
+                enable_torque=enable,
+            )
+
+            print(result)
+
+            if result["success"]:
+                feedback_parts = []
+                action = result["action"]
+                feedback_parts.append(f"Torque {action} successfully!")
+
+                if result["actuator_states"]:
+                    feedback_parts.append("\nActuator states:")
+                    for state in result["actuator_states"]:
+                        if state.get("error"):
+                            feedback_parts.append(f"- Actuator {state['actuator_id']}: {state['error']}")
+                        else:
+                            online_status = "online" if state["online"] else "offline"
+                            position = state["position"]
+                            position_str = f"{position:.1f}°" if position is not None else "unknown"
+                            feedback_parts.append(f"- Actuator {state['actuator_id']}: {online_status}, position: {position_str}, torque: {action}")
+
+                await self._create_tool_response(event.call_id, "\n".join(feedback_parts))
+            else:
+                await self._create_tool_response(
+                    event.call_id,
+                    f"Sorry, I couldn't control the actuator torque: {result['error']}",
+                )
+
+        except Exception as e:
+            print(f"Control actuator torque error: {e}")
+            await self._create_tool_response(event.call_id, f"Sorry, I couldn't control the actuator torque: {str(e)}")

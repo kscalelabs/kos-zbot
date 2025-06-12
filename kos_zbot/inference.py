@@ -6,7 +6,7 @@ import asyncio
 import signal
 from typing import Optional, Dict
 import logging
-from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
+from kos_zbot.actuator import ActuatorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 from kos_zbot.provider import ModelProvider
 from kos_zbot.utils.logging import get_logger, KOSLoggerSetup, get_log_level
@@ -25,7 +25,7 @@ class PolicyLoop:
 
     def __init__(
         self,
-        actuator_controller: SCSMotorController,
+        actuator_controller: ActuatorController,
         imu_manager: BNO055Manager = None,
         rate: int = 50,  # Default to 50Hz control rate
     ):
@@ -245,7 +245,7 @@ async def run_policy_loop(
 
     # Initialize actuator controller
     try:
-        actuator_controller = SCSMotorController(
+        actuator_controller = ActuatorController(
             device=device, baudrate=baudrate, rate=rate
         )
     except NoActuatorsFoundError as e:

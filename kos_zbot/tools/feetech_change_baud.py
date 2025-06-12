@@ -3,7 +3,7 @@
 import argparse
 import sys
 import time
-from kos_zbot.actuator import SCSMotorController
+from kos_zbot.actuator import ActuatorController
 import logging
 logging.basicConfig(level=logging.INFO)
 
@@ -25,7 +25,7 @@ def main():
             sys.exit(1)
 
         print(f"\nInitializing controller on {args.device} at {args.current_baudrate} baud...")
-        controller = SCSMotorController(
+        controller = ActuatorController(
             device=args.device,
             baudrate=args.current_baudrate,
             rate=10

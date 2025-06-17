@@ -6,6 +6,8 @@ import asyncio
 import signal
 from typing import Optional, Dict
 import logging
+import numpy as np
+from collections import deque
 from kos_zbot.actuator import SCSMotorController, NoActuatorsFoundError
 from kos_zbot.imu import BNO055Manager, IMUNotAvailableError
 from kos_zbot.provider import ModelProvider
@@ -17,6 +19,46 @@ from datetime import datetime
 import json
 import time
 
+class TimingStats:
+    """Track timing statistics for a component."""
+    
+    def __init__(self, name: str, max_samples: int = 1000):
+        self.name = name
+        self.samples = deque(maxlen=max_samples)
+        self.total_time = 0.0
+        self.count = 0
+        
+    def add_sample(self, duration_ns: int):
+        """Add a timing sample in nanoseconds."""
+        duration_us = duration_ns / 1000.0  # Convert to microseconds
+        self.samples.append(duration_us)
+        self.total_time += duration_us
+        self.count += 1
+        
+    def get_stats(self) -> Dict:
+        """Get timing statistics."""
+        if not self.samples:
+            return {"name": self.name, "count": 0}
+            
+        samples_array = np.array(list(self.samples))
+        return {
+            "name": self.name,
+            "count": self.count,
+            "mean_us": np.mean(samples_array),
+            "std_us": np.std(samples_array),
+            "min_us": np.min(samples_array),
+            "max_us": np.max(samples_array),
+            "p50_us": np.percentile(samples_array, 50),
+            "p95_us": np.percentile(samples_array, 95),
+            "p99_us": np.percentile(samples_array, 99),
+            "total_time_ms": self.total_time / 1000.0
+        }
+        
+    def reset(self):
+        """Reset all timing data."""
+        self.samples.clear()
+        self.total_time = 0.0
+        self.count = 0
 class PolicyLoop:
     """
     A truly inference loop that handles IMU reading, policy inference,
@@ -42,6 +84,18 @@ class PolicyLoop:
         # State variables
         self.running = False
         self.thread = None
+
+        # Timing measurement
+        self.timing_enabled = True
+        self.read_states_timing = TimingStats("read_states")
+        self.run_policy_timing = TimingStats("run_policy")
+        self.write_commands_timing = TimingStats("write_commands")
+        self.control_loop_timing = TimingStats("control_loop")
+        self.loop_jitter_timing = TimingStats("loop_jitter")
+        
+        # Track loop timing
+        self.last_loop_time = 0
+        self.target_period_us = self.PERIOD_NS / 1000.0  # Convert to microseconds
 
         # Performance tracking
         #self.latency_tracker = get_tracker("inference_loop")
@@ -107,6 +161,12 @@ class PolicyLoop:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
 
+        # Print final timing statistics
+        self.print_timing_stats()
+        
+        # Save timing data
+        #self._save_timing_data()
+
         self.imu_manager.stop()
 
         # Create logs directory if it doesn't exist
@@ -119,6 +179,63 @@ class PolicyLoop:
         #self.policy_provider.save_logs(filename)
         
         self.log.info(f"Policy logs saved to {filename}")
+
+
+    def get_timing_stats(self) -> Dict:
+        """Get comprehensive timing statistics."""
+        return {
+            "control_rate_hz": self.rate,
+            "target_period_us": self.target_period_us,
+            "read_states": self.read_states_timing.get_stats(),
+            "run_policy": self.run_policy_timing.get_stats(),
+            "write_commands": self.write_commands_timing.get_stats(),
+            "control_loop": self.control_loop_timing.get_stats(),
+            "loop_jitter": self.loop_jitter_timing.get_stats(),
+        }
+        
+    def print_timing_stats(self):
+        """Print timing statistics to log."""
+        stats = self.get_timing_stats()
+        
+        self.log.info("=== TIMING STATISTICS ===")
+        self.log.info(f"Target rate: {self.rate}Hz ({self.target_period_us:.1f}µs period)")
+        
+        for component in ["read_states", "run_policy", "write_commands", "control_loop", "loop_jitter"]:
+            s = stats[component]
+            if s["count"] > 0:
+                self.log.info(
+                    f"{s['name']:>15}: "
+                    f"mean={s['mean_us']:6.1f}µs "
+                    f"std={s['std_us']:5.1f}µs "
+                    f"min={s['min_us']:5.1f}µs "
+                    f"max={s['max_us']:6.1f}µs "
+                    f"p95={s['p95_us']:6.1f}µs "
+                    f"p99={s['p99_us']:6.1f}µs "
+                    f"({s['count']} samples)"
+                )
+        
+        # Calculate timing budget usage
+        total_mean = (stats["read_states"]["mean_us"] + 
+                     stats["run_policy"]["mean_us"] + 
+                     stats["write_commands"]["mean_us"])
+        budget_usage = (total_mean / self.target_period_us) * 100
+        
+        self.log.info(f"Timing budget usage: {budget_usage:.1f}% ({total_mean:.1f}µs / {self.target_period_us:.1f}µs)")
+        
+        if stats["loop_jitter"]["count"] > 0:
+            jitter_p99 = stats["loop_jitter"]["p99_us"]
+            jitter_tolerance = self.target_period_us * 0.1  # 10% tolerance
+            if jitter_p99 > jitter_tolerance:
+                self.log.warning(f"High jitter detected: p99={jitter_p99:.1f}µs (tolerance: {jitter_tolerance:.1f}µs)")
+
+    def reset_timing_stats(self):
+        """Reset all timing statistics."""
+        self.read_states_timing.reset()
+        self.run_policy_timing.reset() 
+        self.write_commands_timing.reset()
+        self.control_loop_timing.reset()
+        self.loop_jitter_timing.reset()
+
 
     def _run_policy(self):
         """Run a single step of policy inference directly."""
@@ -174,18 +291,59 @@ class PolicyLoop:
             time.sleep(1/self.rate)
         
         self.policy_carry = self.policy_model.init()
-            
+        
+        # Reset timing stats after warmup
+        self.reset_timing_stats()
+        self.last_loop_time = time.monotonic_ns()
 
         self.log.info(f"Starting policy ({self.rate}Hz)")
         next_time = time.monotonic_ns()
+        loop_count = 0
         while self.running:
             #self.latency_tracker.record_iteration()
 
-            start_time = time.monotonic_ns()
+            loop_start = time.monotonic_ns()
+             
+            # Measure read_states timing
+            read_start = time.monotonic_ns()
             self.actuator_controller._read_states()
+            read_end = time.monotonic_ns()
+            if self.timing_enabled:
+                self.read_states_timing.add_sample(read_end - read_start)
+            
+            # Measure run_policy timing
+            policy_start = time.monotonic_ns()
             self._run_policy()
+            policy_end = time.monotonic_ns()
+            if self.timing_enabled:
+                self.run_policy_timing.add_sample(policy_end - policy_start)
+            
+            # Measure write_commands timing
+            write_start = time.monotonic_ns()
             self.actuator_controller._write_commands()
+            write_end = time.monotonic_ns()
+            if self.timing_enabled:
+                self.write_commands_timing.add_sample(write_end - write_start)
                 
+
+            # Measure overall control loop timing
+            loop_end = time.monotonic_ns()
+            if self.timing_enabled:
+                self.control_loop_timing.add_sample(loop_end - loop_start)
+                
+                # Measure loop jitter (deviation from target period)
+                if self.last_loop_time > 0:
+                    actual_period_ns = loop_start - self.last_loop_time
+                    period_error_ns = abs(actual_period_ns - self.PERIOD_NS)
+                    self.loop_jitter_timing.add_sample(period_error_ns)
+                
+                self.last_loop_time = loop_start
+                
+            # Print stats periodically
+            loop_count += 1
+            if loop_count % (self.rate * 10) == 0:  # Every 10 seconds
+                self.print_timing_stats()
+            
             # -- Schedule next tick-
             next_time += self.PERIOD_NS
             now_ns = time.monotonic_ns()

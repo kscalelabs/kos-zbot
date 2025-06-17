@@ -499,7 +499,7 @@ class SCSMotorController:
         # Set real-time priority if possible
         if platform.system() == "Linux":
             try:
-                os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(99))
+                os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(80))
             except PermissionError:
                 self.log.warning("could not set real-time priority")
         self.thread.start()

@@ -23,7 +23,7 @@ setup(
         'pydub',
         'pyee',
         'openai[realtime]',
-        'protobuf==5.29.0',
+        'protobuf==5.29.5',
         'click',
         'rich',
         'RPi.GPIO',

@@ -86,8 +86,7 @@ make menuconfig
 ### b) Scripted
 
 ```bash
-scripts/config --disable CONFIG_PREEMPT \
-               --enable CONFIG_PREEMPT_RT \
+scripts/config --enable CONFIG_PREEMPT_RT \
                --enable CONFIG_PREEMPT_RT_FULL \
                --enable CONFIG_HIGH_RES_TIMERS
 make olddefconfig
@@ -106,7 +105,15 @@ make -j$(nproc) Image modules dtbs
 
 ---
 
-## 💾 5. Mount KOS Image
+## 🗃️ 5. Install Modules
+
+```bash
+sudo make INSTALL_MOD_PATH=/mnt/kos-root modules_install
+```
+
+---
+
+## 💾 6. Mount KOS Image
 
 ```bash
 sudo mkdir -p /mnt/kos-boot /mnt/kos-root
@@ -116,43 +123,80 @@ sudo mount /dev/sdX2 /mnt/kos-root
 
 ---
 
-## 🗃️ 6. Install Modules
+## 📂 7. Install Kernel & DTBs
 
-```bash
-sudo make INSTALL_MOD_PATH=/mnt/kos-root modules_install
-```
+1. **Backup** existing kernel:
+
+   ```bash
+   sudo mv /mnt/rpi-boot/kernel8.img \
+           /mnt/rpi-boot/kernel8.img.bak
+   ```
+2. **Copy** new RT‑enabled kernel:
+
+   ```bash
+   sudo cp arch/arm64/boot/Image \
+           /mnt/rpi-boot/kernel8.img
+   ```
+3. **Copy** Pi 4 DTB (adjust name if different):
+
+   ```bash
+   sudo cp arch/arm64/boot/dts/broadcom/bcm2711-rpi-4-b.dtb \
+           /mnt/rpi-boot/
+   ```
+4. **Copy all** overlays & README:
+
+   ```bash
+   sudo cp arch/arm64/boot/dts/overlays/*.dtbo \
+           /mnt/rpi-boot/overlays/
+   sudo cp arch/arm64/boot/dts/overlays/README \
+           /mnt/rpi-boot/overlays/
+   ```
+5. **Verify** `/mnt/rpi-boot/config.txt` has:
+
+   ```ini
+   arm_64bit=1
+   kernel=kernel8.img
+   ```
 
 ---
 
-## 🚀 7. Deploy Kernel & DTBs
+## 🔍 8. Verify DTB & Overlays (On Host)
 
-```bash
-# Backup existing
-sudo mv /mnt/kos-boot/kernel8.img /mnt/kos-boot/kernel8.img.bak
+Before reinserting your SD card, **double‑check** filenames and sizes:
 
-# Copy new RT Image
-sudo cp arch/arm64/boot/Image /mnt/kos-boot/kernel8.img
+1. **List** actual DTB filename(s):
 
-# Copy DTBs
-sudo cp arch/arm64/boot/dts/broadcom/*.dtb /mnt/kos-boot/
+   ```bash
+   ls arch/arm64/boot/dts/broadcom/ | grep bcm2711
+   ```
+2. **List** overlay files:
 
-# Copy overlays
-sudo cp arch/arm64/boot/dts/overlays/*.dtb* /mnt/kos-boot/overlays/
-sudo cp arch/arm64/boot/dts/overlays/README /mnt/kos-boot/overlays/
-```
+   ```bash
+   ls arch/arm64/boot/dts/overlays/*.dtbo
+   ```
+3. **Copy** using the exact names you saw above (see step 6).
+4. **Recap** (example):
+
+   ```bash
+   sudo cp arch/arm64/boot/dts/broadcom/bcm2711-rpi-4-b.dtb \
+           /mnt/rpi-boot/
+   sudo cp arch/arm64/boot/dts/overlays/i2c0.dtbo \
+           /mnt/rpi-boot/overlays/
+   sudo cp arch/arm64/boot/dts/overlays/README \
+           /mnt/rpi-boot/overlays/
+   ```
+5. **Inspect sizes**:
+
+   ```bash
+   ls -lh /mnt/rpi-boot/kernel8.img \
+             /mnt/rpi-boot/bcm2711*.dtb \
+             /mnt/rpi-boot/overlays/*.dtbo
+   ```
 
 ---
 
-## 📝 8. Update `config.txt` for KOS
 
-```bash
-sudo sed -i \
-  -e 's/^#\?arm_64bit=.*/arm_64bit=1/' \
-  -e 's/^#\?kernel=.*/kernel=kernel8.img/' \
-  /mnt/kos-boot/config.txt
-```
 
----
 
 ## 🔌 9. Unmount & Boot
 

@@ -97,7 +97,7 @@ kos <robot_name> infer [OPTIONS]
   - `--rate INT`: Control loop rate in Hz (default: 50)
 - **Example:**
   ```bash
-  kos zbot infer --model ./policy.onnx --action-scale 0.2 --episode-length 60
+  kos zbot infer --model ./policy.kinfer --action-scale 0.2 --episode-length 60
   ```
 
 ---
@@ -134,7 +134,7 @@ kos policy start POLICY_FILE [OPTIONS]
   - `--dry-run`: Run policy in dry-run mode (no actuators will be moved)
 - **Example:**
   ```bash
-  kos policy start ./my_policy.onnx --episode-length 45 --action-scale 0.15
+  kos policy start ./my_policy.kinfer --episode-length 45 --action-scale 0.15
   ```
 
 #### b. Stop Policy Deployment
@@ -358,7 +358,7 @@ When you start the service with a robot name (`kos <robot_name>`), the system au
 
 3. **Run inference with a trained policy:**
    ```bash
-   kos zbot infer --model ./trained_policy.onnx --action-scale 0.2
+   kos zbot infer --model ./trained_policy.kinfer --action-scale 0.2
    ```
 
 ### Policy Deployment Workflow
@@ -370,7 +370,7 @@ When you start the service with a robot name (`kos <robot_name>`), the system au
 
 2. **Deploy a policy:**
    ```bash
-   kos policy start ./my_policy.onnx --episode-length 60 --action-scale 0.1
+   kos policy start ./my_policy.kinfer --episode-length 60 --action-scale 0.1
    ```
 
 3. **Check policy status:**

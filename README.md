@@ -26,6 +26,8 @@ kos service
 ### Option 2: Start service for a specific robot
 ```bash
 kos <robot_name>
+
+# robot name points to kscale api robot description ( for example zbot, zbot-wired etc )
 ```
 **When robot metadata is loaded, the system automatically:**
 - Sets servo gains (kp, kd, ki) based on robot configuration

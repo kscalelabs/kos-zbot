@@ -303,7 +303,7 @@ class PolicyLoop:
             #self.latency_tracker.record_iteration()
 
             loop_start = time.monotonic_ns()
-             
+            
             # Measure read_states timing
             read_start = time.monotonic_ns()
             self.actuator_controller._read_states()
@@ -318,7 +318,7 @@ class PolicyLoop:
             if self.timing_enabled:
                 self.run_policy_timing.add_sample(policy_end - policy_start)
             
-            # Measure write_commands timing
+             # Measure write_commands timing
             write_start = time.monotonic_ns()
             self.actuator_controller._write_commands()
             write_end = time.monotonic_ns()
@@ -366,12 +366,12 @@ class PolicyLoop:
                     self.log.error(f"Hard overrun {over_us/1000:.2f} ms")
                 elif over_us > 2_000:
                     self.log.warning(f"Overrun {over_us/1000:.2f} ms")
-                elif over_us > 500:
-                    self.log.warning(f"Minor jitter {over_us/1000:.2f} ms")
-                elif over_us > 100:
-                    self.log.warning(f"Very minor jitter {over_us/1000:.2f} ms")
-                elif over_us > 50:
-                    self.log.warning(f"Super Minor jitter {over_us/1000:.4f} ms")
+                #elif over_us > 500:
+                #    self.log.warning(f"Minor jitter {over_us/1000:.2f} ms")
+                #elif over_us > 100:
+                #    self.log.warning(f"Very minor jitter {over_us/1000:.2f} ms")
+                #elif over_us > 50:
+                #    self.log.warning(f"Super Minor jitter {over_us/1000:.4f} ms")
     
 async def run_policy_loop(
     model_file=None,
@@ -454,7 +454,7 @@ async def run_policy_loop(
         policy_loop.stop()
         position_commands = {}
         for actuator_id in actuator_controller.actuator_ids:
-            position_commands[actuator_id] = {"position": 0.0, "velocity": 0.0}
+            position_commands[actuator_id] = {"position": 0.0, "velocity": 75.0}
 
         if position_commands:
             log.info("Moving all joints to zero position")

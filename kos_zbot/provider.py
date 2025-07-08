@@ -339,12 +339,58 @@ class ModelProvider(ModelProviderABC):
     #    return command_array
 
     def get_command(self) -> np.ndarray:
-        if self.keyboard_state is None:
-            command_array = np.array([0.0], dtype=np.float32)
-            self.arrays["command"] = command_array
-            return command_array
-            
-        command_array = np.array(self.keyboard_state.value, dtype=np.float32)
+        # Return 6-dimensional command with all zeros
+        # Format: [x_linear, y_linear, yaw, base_height, roll, pitch]
+        command_values = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        
+        #---------------------------------
+        # Tilt Compensation Test
+        # command = [cmd0, cmd1, cmd2, cmd3, cmd4, cmd5]  # 6 total commands
+
+        # === TILT COMPENSATION GAIN CONTROL ===
+        # command[0]: Pitch gain control
+        #   - Maps [-1,1] to [0.5, 3.5] 
+        #   - Default (-1) gives roll_gain = 2.0
+        #   - Controls how much forward/backward tilt affects roll joints
+
+        # command[1]: Roll gain control  
+        #   - Maps [-1,1] to [0.5, 2.5]
+        #   - Default (-1) gives pitch_gain = 1.5
+        #   - Controls how much side-to-side tilt affects pitch joints
+
+        # command[2]: hip pitch scale control
+        #   - Maps [-1,1] to [0.2, 0.8]
+        #   - Default (-1) gives hip_pitch_scale = 0.5
+        #   - Scales how much hip pitch joints respond to roll tilt
+
+        # command[3]: Ankle roll scale control
+        #   - Maps [-1,1] to [0.2, 0.8]
+        #   - Default (-1) gives ankle_roll_scale = 0.5
+        #   - Scales how much ankle roll joints respond to pitch tilt
+
+        # command[4]: Ankle pitch scale control  
+        #   - Maps [-1,1] to [0.2, 0.8]
+        #   - Default (-1) gives ankle_pitch_scale = 0.5
+        #   - Scales how much ankle pitch joints respond to roll tilt
+
+        # command[5]: Knee pitch scale control
+        #   - Maps [-1,1] to [0.2, 0.8]
+        #   - Default (-1) gives knee_pitch_scale = 0.5
+        #   - Scales how much knee pitch joints respond to roll tilt
+
+        # === ORIGINAL COMMAND MEANING (from NUM_COMMANDS comment) ===
+        # NUM_COMMANDS = 6  # vx, vy, heading, bh, rx, ry
+        # But these are hijacked for tilt control gains instead
+        #command_values = [-0.85, 0.0, 0.3, 1.0, 6.0, 2.0]
+        #---------------------------------
+
+        # Interactive Pose
+        #--------------------------------
+        #command_values = [1.0, 1000.0, -1.0, 1.0, 0.5, 1.0, 1.0]
+        #                 pose gain restore blend arms legs speed
+        #--------------------------------
+        command_array = np.array(command_values, dtype=np.float32)
         self.arrays["command"] = command_array
         return command_array
 
@@ -367,8 +413,6 @@ class ModelProvider(ModelProviderABC):
             )
 
             if actuator_id in self.actuator_controller.actuator_ids:
-                #if actuator_id < 25:
-                #    scaled_position = 0.0
                 position_commands[actuator_id] = scaled_position
             else:
                 self.log.error(

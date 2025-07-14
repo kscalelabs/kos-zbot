@@ -1,7 +1,5 @@
-#!/usr/bin/env python
-
-from .scservo_def import *
 import time
+from .servo_defs import *
 
 class GroupSyncRead:
     def __init__(self, ph, start_address, data_length):

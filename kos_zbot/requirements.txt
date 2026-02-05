@@ -12,7 +12,7 @@ sounddevice
 pydub
 pyee
 openai[realtime]
-protobuf==5.29.5 
+protobuf==5.29.6 
 click
 rich
 RPi.GPIO 
